@@ -35,13 +35,21 @@ export const useBreakpoint = () => useSyncExternalStore(subscribeBreakpoint, get
 /* ---------- Panel sizes (pixels) ---------- */
 
 export const SIZES = {
-  tools: { min: 240, max: 420, default: 300 },
-  side: { min: 260, max: 420, default: 320 },
-  transcript: { min: 280, max: 480, default: 340, collapsed: 40 },
+  desktop: {
+    assets: { min: 260, max: 440, default: 320 },
+    inspector: { min: 260, max: 400, default: 300, collapsed: 40 },
+  },
+  laptop: {
+    assets: { min: 240, max: 360, default: 272 },
+    inspector: { min: 240, max: 340, default: 264, collapsed: 40 },
+  },
   center: { min: 360 },
   timeline: { min: 120, max: "45%", default: 200, collapsed: 32 },
   main: { min: 280 },
 } as const;
+
+/** Bump when the panel structure changes so old saved sizes are ignored. */
+export const LAYOUT_VERSION = "v3";
 
 /** localStorage that never throws (private mode, blocked storage). */
 export const layoutStorage: LayoutStorage = {
@@ -63,80 +71,60 @@ export const layoutStorage: LayoutStorage = {
 
 /* ---------- Collapse state ---------- */
 
-export type PanelKey = "tools" | "transcript" | "timeline";
-export type SideTab = "tools" | "transcript";
+export type PanelKey = "assets" | "inspector" | "timeline";
 
 type LayoutState = {
-  collapsed: Record<PanelKey | "side", boolean>;
-  setCollapsed: (key: PanelKey | "side", value: boolean) => void;
-  /** 1024–1279px: what the left panel shows. */
-  sideTab: SideTab;
-  setSideTab: (tab: SideTab) => void;
+  collapsed: Record<PanelKey, boolean>;
+  setCollapsed: (key: PanelKey, value: boolean) => void;
   /** 768–1023px: the section under the preview. */
   tabletTab: PanelKey;
   setTabletTab: (tab: PanelKey) => void;
 };
 
 export const useLayoutStore = create<LayoutState>()((set) => ({
-  collapsed: { tools: false, transcript: false, timeline: false, side: false },
+  collapsed: { assets: false, inspector: false, timeline: false },
   setCollapsed: (key, value) =>
     set((s) => (s.collapsed[key] === value ? s : { collapsed: { ...s.collapsed, [key]: value } })),
-  sideTab: "tools",
-  setSideTab: (sideTab) => set({ sideTab }),
-  tabletTab: "tools",
+  tabletTab: "assets",
   setTabletTab: (tabletTab) => set({ tabletTab }),
 }));
 
-// Imperative handles of the mounted panels. "side" is the shared left panel at 1024–1279px.
-type HandleKey = PanelKey | "side";
-const handles: Partial<Record<HandleKey, RefObject<PanelImperativeHandle | null>>> = {};
+// Imperative handles of the mounted panels.
+const handles: Partial<Record<PanelKey, RefObject<PanelImperativeHandle | null>>> = {};
 
-export function registerPanel(key: HandleKey, ref: RefObject<PanelImperativeHandle | null>) {
+export function registerPanel(key: PanelKey, ref: RefObject<PanelImperativeHandle | null>) {
   handles[key] = ref;
   return () => {
     if (handles[key] === ref) delete handles[key];
   };
 }
 
-const handle = (key: HandleKey) => handles[key]?.current ?? null;
+const handle = (key: PanelKey) => handles[key]?.current ?? null;
 
-/** Toggle a panel the way the current breakpoint shows it (`[`, `]`, `\` and the header buttons). */
+/** Toggle a panel the way the current breakpoint shows it (`[`, `]`, `\`, View menu). */
 export function togglePanel(key: PanelKey) {
-  const bp = getBreakpoint();
-  const s = useLayoutStore.getState();
-  if (bp === "tablet") return s.setTabletTab(key);
-  if (bp === "laptop" && key !== "timeline") {
-    const side = handle("side");
-    if (!side) return;
-    if (side.isCollapsed()) {
-      s.setSideTab(key);
-      side.expand();
-    } else if (s.sideTab !== key) s.setSideTab(key);
-    else side.collapse();
-    return;
-  }
+  if (getBreakpoint() === "tablet") return useLayoutStore.getState().setTabletTab(key);
   const p = handle(key);
   if (!p) return;
   if (p.isCollapsed()) p.expand();
   else p.collapse();
 }
 
-/** Make sure a panel is visible (e.g. picking a tool in the rail). */
+/** Make sure a panel is visible (e.g. picking an assets tab). */
 export function revealPanel(key: PanelKey) {
-  const bp = getBreakpoint();
-  const s = useLayoutStore.getState();
-  if (bp === "tablet") return s.setTabletTab(key);
-  if (bp === "laptop" && key !== "timeline") {
-    s.setSideTab(key);
-    const side = handle("side");
-    if (side?.isCollapsed()) side.expand();
-    return;
-  }
+  if (getBreakpoint() === "tablet") return useLayoutStore.getState().setTabletTab(key);
   const p = handle(key);
   if (p?.isCollapsed()) p.expand();
 }
 
 /** Collapse a panel (header buttons). */
-export function collapsePanel(key: PanelKey | "side") {
+export function collapsePanel(key: PanelKey) {
   handle(key)?.collapse();
+}
+
+/** Is the panel showing right now? (View menu check marks.) */
+export function usePanelVisible(key: PanelKey, breakpoint: Breakpoint) {
+  const collapsed = useLayoutStore((s) => s.collapsed[key]);
+  const tabletTab = useLayoutStore((s) => s.tabletTab);
+  return breakpoint === "tablet" ? tabletTab === key : !collapsed;
 }

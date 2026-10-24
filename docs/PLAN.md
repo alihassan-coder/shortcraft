@@ -24,7 +24,7 @@ Agreed with the owner on 2026-10-24. This is the source of truth for what we bui
 
 **Frontend (now):** Next.js 16, Tailwind v4, shadcn/ui, Remotion (`@remotion/player`), Zod, Zustand + zundo, Motion, react-dropzone, lucide-react, sonner, Geist/Inter.
 
-**Backend (later):** FastAPI (uv), Claude agents (Director + specialists as tools), Deepgram (then WhisperX), job queue (arq + Redis), Supabase (auth + DB), Cloudflare R2 (video storage), Remotion render worker / Lambda, DeepFilterNet (voice), librosa (beats), MediaPipe (face position).
+**Backend (later):** FastAPI (uv), LangGraph agents via LangChain, OpenAI models (Director + specialists), Deepgram (then WhisperX), job queue (arq + Redis), Supabase (auth + DB), Cloudflare R2 (video storage), Remotion render worker / Lambda, DeepFilterNet (voice), librosa (beats), MediaPipe (face position).
 
 ⚠️ Remotion license: free for individuals and companies of up to 3 people; bigger companies need a paid license.
 

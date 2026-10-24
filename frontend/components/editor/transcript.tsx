@@ -1,19 +1,37 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Highlighter, RotateCcw, Scissors, X } from "lucide-react";
+import { Highlighter, PencilLine, RotateCcw, Scissors, SmilePlus, X } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { cutForWord, isCutActive, isWordCut } from "@/lib/edit-plan/timeline";
+import { keyLabel } from "@/lib/editor/actions";
+import { revealPanel, useBreakpoint } from "@/lib/editor/layout";
 import { playerControls } from "@/lib/editor/player";
-import { dispatch, usePlanStore, useTimeline, useUiStore } from "@/lib/editor/store";
+import { dispatch, usePlanStore, useSelectedId, useTimeline, useUiStore } from "@/lib/editor/store";
 import { cn } from "@/lib/utils";
 import { PanelHeader } from "./controls";
 
-const EMOJIS = ["🔥", "👀", "💡", "⏱️", "📱", "🚀", "✅", "❌", "😂", "❤️", "💰", "🎯"];
+export const EMOJIS = ["🔥", "👀", "💡", "⏱️", "📱", "🚀", "✅", "❌", "😂", "❤️", "💰", "🎯"];
 
 export function Transcript() {
   const plan = usePlanStore((s) => s.plan);
   const tl = useTimeline();
-  const { selectedWordId, selectWord, currentMs } = useUiStore();
+  const { selectWord, currentMs } = useUiStore();
+  const selectedWordId = useSelectedId("word");
+  const breakpoint = useBreakpoint();
+  // Word under the last right-click; one menu serves the whole transcript.
+  const [menuWordId, setMenuWordId] = useState<string | null>(null);
+  const menuWord = words.find((w) => w.id === menuWordId);
   // One source per project for now; the transcript follows the first one.
   const source = plan.sources[0];
   const words = source.words;
@@ -41,9 +59,10 @@ export function Transcript() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PanelHeader title="Transcript" description="Click a word to select it. Delete to cut." />
+      <PanelHeader title="Transcript" description="Click a word to select it, Delete to cut. Right-click for more." />
 
-      {selected && (
+      {/* On tablets the Inspector is a separate tab, so word actions stay here. */}
+      {selected && breakpoint === "tablet" && (
         <WordActions
           key={selected.id}
           text={plan.captions.edits[selected.id] ?? selected.text}
@@ -58,8 +77,20 @@ export function Transcript() {
         />
       )}
 
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-        <p className="text-[16px] leading-[2.1]">
+      <ContextMenu onOpenChange={(open) => !open && setMenuWordId(null)}>
+      <ContextMenuTrigger asChild>
+      <div
+        ref={scroller}
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+        onContextMenu={(e) => {
+          const id = (e.target as HTMLElement).closest<HTMLElement>("[data-word]")?.dataset.word;
+          // Only words have a menu; elsewhere the browser's own menu shows.
+          if (!id) return e.preventDefault();
+          setMenuWordId(id);
+          selectWord(id);
+        }}
+      >
+        <p className="text-[15px] leading-[2.05]">
           {words.map((w) => {
             const cut = isWordCut(plan, source.id, w);
             const c = cut ? cutForWord(plan, source.id, w) : undefined;
@@ -105,11 +136,90 @@ export function Transcript() {
           })}
         </p>
       </div>
+      </ContextMenuTrigger>
+      {menuWord && (
+        <WordMenu
+          cut={isWordCut(plan, source.id, menuWord)}
+          highlighted={plan.captions.highlights.includes(menuWord.id)}
+          emoji={plan.captions.emojis[menuWord.id]}
+          onCut={() => dispatch({ type: "toggleWordCut", sourceId: source.id, wordId: menuWord.id })}
+          onHighlight={() => dispatch({ type: "toggleHighlight", wordId: menuWord.id })}
+          onEmoji={(emoji) => dispatch({ type: "setEmoji", wordId: menuWord.id, emoji })}
+          onEdit={() => revealPanel("inspector")}
+        />
+      )}
+      </ContextMenu>
     </div>
   );
 }
 
-function WordActions({
+function WordMenu({
+  cut,
+  highlighted,
+  emoji,
+  onCut,
+  onHighlight,
+  onEmoji,
+  onEdit,
+}: {
+  cut: boolean;
+  highlighted: boolean;
+  emoji?: string;
+  onCut: () => void;
+  onHighlight: () => void;
+  onEmoji: (e: string | null) => void;
+  onEdit: () => void;
+}) {
+  return (
+    <ContextMenuContent className="w-52">
+      <ContextMenuItem onSelect={onCut}>
+        {cut ? <RotateCcw /> : <Scissors />}
+        {cut ? "Restore word" : "Cut word"}
+        <ContextMenuShortcut>{keyLabel("delete")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={onHighlight}>
+        <Highlighter />
+        {highlighted ? "Remove highlight" : "Highlight"}
+        <ContextMenuShortcut>H</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuSub>
+        <ContextMenuSubTrigger>
+          <SmilePlus />
+          Add emoji…
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className="w-[184px] p-1.5">
+          <div className="grid grid-cols-6 gap-0.5">
+            {EMOJIS.map((e) => (
+              <ContextMenuItem
+                key={e}
+                onSelect={() => onEmoji(emoji === e ? null : e)}
+                className={cn("grid size-7 place-items-center p-0 text-base", emoji === e && "bg-surface")}
+                aria-label={`Emoji ${e}`}
+              >
+                {e}
+              </ContextMenuItem>
+            ))}
+          </div>
+          {emoji && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem onSelect={() => onEmoji(null)}>
+                <X /> Remove emoji
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={onEdit}>
+        <PencilLine />
+        Edit spelling…
+      </ContextMenuItem>
+    </ContextMenuContent>
+  );
+}
+
+export function WordActions({
   text,
   cut,
   highlighted,
@@ -128,11 +238,11 @@ function WordActions({
   onHighlight: () => void;
   onEmoji: (e: string | null) => void;
   onText: (t: string) => void;
-  onClose: () => void;
+  onClose?: () => void;
 }) {
   const [draft, setDraft] = useState(text);
   return (
-    <div className="space-y-3 border-b bg-surface/60 px-5 py-4">
+    <div className="space-y-3 border-b bg-surface/60 px-4 py-3.5">
       <div className="flex items-center gap-2">
         <input
           value={draft}
@@ -143,11 +253,13 @@ function WordActions({
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
           aria-label="Word text"
-          className="h-9 min-w-0 flex-1 rounded-lg border bg-white px-3 text-sm outline-none focus:border-ink"
+          className="h-8 min-w-0 flex-1 rounded-[10px] border bg-white px-2.5 text-[13px] outline-none focus:border-ink"
         />
-        <button onClick={onClose} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-white" aria-label="Close">
-          <X className="size-4" />
-        </button>
+        {onClose && (
+          <button onClick={onClose} className="grid size-8 place-items-center rounded-[10px] text-muted-foreground hover:bg-white" aria-label="Close">
+            <X className="size-4" />
+          </button>
+        )}
       </div>
       <div className="flex gap-1.5">
         <button

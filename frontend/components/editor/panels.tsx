@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Pause, Play, Plus, RotateCcw, Scissors, Trash2, X } from "lucide-react";
+import { Check, Pause, Play, Plus, RotateCcw, Scissors, X } from "lucide-react";
 import { CAPTION_PRESETS, captionTextStyle } from "@/lib/caption-presets";
 import type { EditPlan, ZoomStyle } from "@/lib/edit-plan/schema";
 import { TRACKS } from "@/lib/edit-plan/music-library";
-import type { EditCommand } from "@/lib/edit-plan/commands";
 import { formatTime, isCutActive } from "@/lib/edit-plan/timeline";
 import { playerControls } from "@/lib/editor/player";
-import { dispatch, usePlanStore, useTimeline, useUiStore, type Tool } from "@/lib/editor/store";
+import { revealPanel } from "@/lib/editor/layout";
+import { dispatch, usePlanStore, useSelectedId, useTimeline, useUiStore } from "@/lib/editor/store";
 import { cn } from "@/lib/utils";
 import { Group, PanelHeader, Segmented, SliderRow, ToggleRow } from "./controls";
 
@@ -22,11 +22,10 @@ const VIBES: { value: EditPlan["vibe"]; label: string }[] = [
   { value: "story", label: "Story" },
 ];
 
-function StylePanel() {
+export function CaptionStyles() {
   const plan = usePlan();
   return (
     <>
-      <PanelHeader title="Style" description="Pick a vibe for the whole video, then a caption look." />
       <Group label="Vibe">
         <Segmented
           value={plan.vibe}
@@ -69,23 +68,20 @@ function StylePanel() {
 
 /* ---------- Captions ---------- */
 
-function CaptionsPanel() {
+export function CaptionsPanel() {
   const plan = usePlan();
   const { captions } = plan;
   const wordsById = useMemo(() => new Map(plan.sources.flatMap((src) => src.words).map((w) => [w.id, w])), [plan.sources]);
 
   return (
     <>
-      <PanelHeader
-        title="Captions"
-        description="Click any word in the transcript to highlight it, add an emoji or fix the spelling."
-      />
+      <PanelHeader title="Captions" description="Pick a look. Right-click a word in the transcript to highlight it or add an emoji." />
       <Group>
         <ToggleRow label="Show captions" checked={captions.enabled} onChange={(v) => dispatch({ type: "setCaptions", captions: { enabled: v } })} />
         <ToggleRow label="Emojis" checked={captions.showEmojis} onChange={(v) => dispatch({ type: "setCaptions", captions: { showEmojis: v } })} />
       </Group>
       <Group label="Layout">
-        <p className="mb-2 text-sm">Words per line</p>
+        <p className="mb-2 text-[13px] text-ink-2">Words per line</p>
         <Segmented
           value={captions.wordsPerLine}
           options={[
@@ -137,7 +133,7 @@ function CaptionsPanel() {
 
 const REASON_LABEL = { silence: "Pause", filler: "Filler word", retake: "Repeated take", manual: "Removed by you" } as const;
 
-function CutsPanel() {
+export function CutsPanel() {
   const plan = usePlan();
   const tl = useTimeline({ original: false });
   const sourceMs = plan.clips.reduce((sum, c) => sum + (c.outMs - c.inMs) / c.speed, 0);
@@ -155,8 +151,8 @@ function CutsPanel() {
       <PanelHeader title="Cuts" description="Choose what gets removed. Every cut can be brought back." />
       <Group>
         <div className="mb-3 flex items-baseline justify-between rounded-xl bg-surface px-3.5 py-3">
-          <span className="text-sm">Time saved</span>
-          <span className="font-mono text-sm">
+          <span className="text-[13px]">Time saved</span>
+          <span className="font-mono text-[13px]">
             {(saved / 1000).toFixed(1)}s · <span className="text-muted-foreground line-through">{formatTime(sourceMs)}</span>{" "}
             {formatTime(tl.durationMs)}
           </span>
@@ -212,24 +208,22 @@ function CutsPanel() {
 
 /* ---------- Zoom ---------- */
 
-const ZOOM_STYLES: { value: ZoomStyle; label: string }[] = [
+export const ZOOM_STYLES: { value: ZoomStyle; label: string }[] = [
   { value: "punch", label: "Punch" },
   { value: "smooth", label: "Smooth" },
   { value: "push", label: "Push" },
   { value: "linear", label: "Linear" },
 ];
 
-function ZoomPanel() {
+export function ZoomPanel() {
   const plan = usePlan();
-  const { selectedZoomId, selectZoom, currentMs } = useUiStore();
-  const selected = plan.zooms.items.find((z) => z.id === selectedZoomId);
+  const { selectZoom, currentMs } = useUiStore();
+  const selectedZoomId = useSelectedId("zoom");
   const tl = useTimeline({ original: false });
-  const updateZoom = (zoomId: string, patch: Extract<EditCommand, { type: "updateZoom" }>["patch"]) =>
-    dispatch({ type: "updateZoom", zoomId, patch });
 
   return (
     <>
-      <PanelHeader title="Zoom-ins" description="Punch in on the moments that matter. Click a zoom on the timeline to edit it." />
+      <PanelHeader title="Zoom-ins" description="Punch in on the moments that matter. Select a zoom to edit it in the Inspector." />
       <Group>
         <ToggleRow label="Zoom-ins" checked={plan.zooms.enabled} onChange={(enabled) => dispatch({ type: "setZoomsEnabled", enabled })} />
         <button
@@ -237,7 +231,7 @@ function ZoomPanel() {
             const at = tl.toSource(currentMs);
             if (at) dispatch({ type: "addZoom", sourceId: at.sourceId, atMs: at.srcMs });
           }}
-          className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-full border text-sm hover:bg-surface"
+          className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-full border text-[13px] hover:bg-surface"
         >
           <Plus className="size-4" /> Add zoom at playhead
         </button>
@@ -249,6 +243,7 @@ function ZoomPanel() {
               <button
                 onClick={() => {
                   selectZoom(z.id);
+                  revealPanel("inspector");
                   playerControls.seekSourceMs(z.sourceId, z.startMs);
                 }}
                 className={cn(
@@ -266,54 +261,13 @@ function ZoomPanel() {
           ))}
         </ul>
       </Group>
-      {selected && (
-        <Group label="Selected zoom">
-          <Segmented value={selected.style} options={ZOOM_STYLES} onChange={(style) => updateZoom(selected.id, { style })} />
-          <div className="mt-4 space-y-2">
-            <SliderRow
-              label="Strength"
-              value={Math.round(selected.scale * 100)}
-              min={105}
-              max={160}
-              format={(v) => `${v}%`}
-              onChange={(v) => updateZoom(selected.id, { scale: v / 100 })}
-            />
-            <SliderRow
-              label="Length"
-              value={Math.round((selected.endMs - selected.startMs) / 100) / 10}
-              min={0.5}
-              max={5}
-              step={0.1}
-              format={(v) => `${v.toFixed(1)}s`}
-              onChange={(v) => updateZoom(selected.id, { endMs: selected.startMs + v * 1000 })}
-            />
-            <SliderRow
-              label="Focus height"
-              value={Math.round(selected.focusY * 100)}
-              min={10}
-              max={90}
-              format={(v) => `${v}%`}
-              onChange={(v) => updateZoom(selected.id, { focusY: v / 100 })}
-            />
-          </div>
-          <button
-            onClick={() => {
-              dispatch({ type: "removeZoom", zoomId: selected.id });
-              selectZoom(null);
-            }}
-            className="mt-3 flex items-center gap-1.5 text-sm text-cut hover:underline"
-          >
-            <Trash2 className="size-3.5" /> Delete zoom
-          </button>
-        </Group>
-      )}
     </>
   );
 }
 
 /* ---------- Audio ---------- */
 
-function AudioPanel() {
+export function AudioPanel() {
   const plan = usePlan();
   const { music } = plan;
   const [previewing, setPreviewing] = useState<string | null>(null);
@@ -351,7 +305,7 @@ function AudioPanel() {
           <li>
             <button
               onClick={() => dispatch({ type: "setMusic", music: { trackId: null } })}
-              className={cn("flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm", music.trackId === null ? "bg-surface" : "hover:bg-surface")}
+              className={cn("flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-[13px]", music.trackId === null ? "bg-surface" : "hover:bg-surface")}
             >
               <span className="grid size-8 place-items-center rounded-full border">
                 <X className="size-3.5" />
@@ -371,7 +325,7 @@ function AudioPanel() {
               </button>
               <button onClick={() => dispatch({ type: "setMusic", music: { trackId: t.id } })} className="flex flex-1 items-center text-left">
                 <span className="flex-1">
-                  <span className="block text-sm">{t.name}</span>
+                  <span className="block text-[13px]">{t.name}</span>
                   <span className="block text-[11px] text-muted-foreground">{t.mood}</span>
                 </span>
                 {music.trackId === t.id && <Check className="size-4" />}
@@ -396,7 +350,7 @@ function AudioPanel() {
 
 /* ---------- Hook ---------- */
 
-function HookPanel() {
+export function HookPanel() {
   const plan = usePlan();
   const { hook } = plan;
   return (
@@ -415,7 +369,7 @@ function HookPanel() {
                 playerControls.seekOutputMs(300);
               }}
               className={cn(
-                "w-full rounded-xl border px-3.5 py-3 text-left text-sm transition",
+                "w-full rounded-xl border px-3.5 py-3 text-left text-[13px] transition",
                 hook.text === o ? "border-ink bg-white" : "hover:bg-surface",
               )}
             >
@@ -430,26 +384,11 @@ function HookPanel() {
           onChange={(e) => dispatch({ type: "setHook", hook: { text: e.target.value } })}
           rows={3}
           maxLength={80}
-          className="w-full resize-none rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-ink focus:ring-3 focus:ring-rec/20"
+          className="w-full resize-none rounded-xl border px-3 py-2.5 text-[13px] outline-none focus:border-ink focus:ring-3 focus:ring-rec/20"
         />
         <p className="mt-1 text-right text-[11px] text-muted-foreground">{hook.text.length}/80</p>
         <SliderRow label="Show for" value={hook.durationMs / 1000} min={1} max={5} step={0.1} format={(v) => `${v.toFixed(1)}s`} onChange={(v) => dispatch({ type: "setHook", hook: { durationMs: v * 1000 } })} />
       </Group>
     </>
   );
-}
-
-const PANELS: Record<Tool, () => React.JSX.Element> = {
-  style: StylePanel,
-  captions: CaptionsPanel,
-  cuts: CutsPanel,
-  zoom: ZoomPanel,
-  music: AudioPanel,
-  hook: HookPanel,
-};
-
-export function ToolPanel() {
-  const tool = useUiStore((s) => s.tool);
-  const Panel = PANELS[tool];
-  return <Panel />;
 }

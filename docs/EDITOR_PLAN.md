@@ -311,3 +311,118 @@ All panels are resizable and collapsible (E2). The transcript moves into the Ass
 
 - **Layout:** CapCut-style pro layout (Assets left, Player center, Inspector right, multi-track timeline bottom). Approved.
 - **All four** feature areas are wanted: pro timeline, canvas handles, text & elements, audio & SFX. They are built in the order E4 → E7 above, after E3 (pro shell).
+
+---
+
+## 10. Controls catalogue (what users can change)
+
+The owner wants **many options**: basic colors, text editing, moving and resizing things on screen, and more. Every item below is an Inspector control and/or an on-canvas handle, and every change goes through `applyEdit` (undoable, saved, rendered the same in export).
+
+### 10.1 On-canvas editing (the "move it on screen" part)
+
+| What | How | Built with |
+|---|---|---|
+| Move text, stickers, logo, video | Drag on the preview | **react-moveable** |
+| Resize | Corner handles (keep ratio), Shift for free resize | react-moveable |
+| Rotate | Rotation handle; Shift snaps to 15° | react-moveable |
+| Snap | To center lines, edges, safe zones and other items, with pink guide lines | react-moveable snappable |
+| Nudge | Arrow keys 1px, Shift+arrow 10px | our shortcuts |
+| Edit text in place | Double-click a text item, then type directly on the video | contentEditable overlay |
+| Layer order | Bring forward / send back (right-click or `Ctrl+]` / `Ctrl+[`) | `applyEdit` reorder |
+| Lock | Lock an item so it can't be moved by accident | item flag |
+| Align | Align left/center/right/top/middle/bottom to the canvas | Inspector buttons |
+
+### 10.2 Text
+
+| Group | Options |
+|---|---|
+| Content | Text (multi-line), case (Aa / AA / aa) |
+| Font | ~30 curated **Google Fonts** (bold creator fonts + clean fonts), weight, italic, size, letter spacing, line height, alignment |
+| Color | Fill color, **basic color swatches** (white, black, yellow, red, orange, green, blue, purple, pink) + custom picker + hex input + eyedropper (where the browser supports it) + recent colors |
+| Style | Outline (color + thickness), shadow (color, blur, offset), background box (color, opacity, padding, roundness), gradient fill (2 colors) |
+| Presets | 20+ one-click text styles (Title, Subtitle, Label, Quote, Price tag, CTA…) + **save my style** |
+| Animation | In: fade, pop, slide (4 directions), typewriter, bounce. Out: same set. Loop: pulse, wiggle. Duration controls |
+| Timing | Start/end on the Text track (drag the edges), or type exact times |
+
+### 10.3 Colors everywhere (one shared color control)
+
+- **Basic swatches** + **brand colors** (from the brand kit later) + **recent colors**.
+- **Picker:** **react-colorful** (hue/saturation box + opacity slider).
+- **Hex / RGB input** and an **eyedropper** using the browser `EyeDropper` API where it exists (Chrome/Edge).
+- The same control is used for text, caption highlight, background, shapes, progress bar and outline.
+
+### 10.4 Captions (on top of v1)
+
+Everything from v1, plus:
+- **font, colors** (normal word + highlight word + outline + box)
+- **size, position by dragging on the preview**
+- **max lines**
+- **animation per style**
+- **edit a whole line's text**
+- **word timing nudges**
+- **per-word color override**
+
+### 10.5 Video clips
+
+| Group | Options |
+|---|---|
+| Transform | Position, scale, rotation, opacity, flip H/V, fit/fill, **drag on canvas** |
+| Crop | Crop box on the frame (**react-easy-crop**), aspect locks (free, 9:16, 1:1, 4:5, 16:9) |
+| Speed | 0.25×–4× presets + slider; keep pitch on/off |
+| Color | Filters (Natural, Warm, Cool, Vivid, Mono, Film, Fade, Punch) + brightness, contrast, saturation, temperature, tint, vignette, sharpness |
+| Background (when not filling) | Blur amount, solid color, image |
+| Audio | Volume, mute, fade in/out, **detach audio** |
+| Edit | Split, trim, duplicate, delete, reverse (later), freeze frame (later) |
+| Animation | In/out: fade, zoom in, slide; Ken-Burns slow zoom |
+
+### 10.6 Elements and stickers
+
+- **Emojis:** **frimousse** picker
+- **Shapes:** rectangle, circle, line, arrow, with fill/outline colors
+- **Pre-made stickers:** subscribe/follow button, "NEW", arrows, highlights
+- **Progress bar:** position, color, thickness
+- **Logo / watermark:** upload, place, opacity
+- Every element can be **moved, resized and rotated** on the canvas and animated
+
+### 10.7 Audio
+
+- Music library with search by mood
+- **SFX library:** whoosh, pop, ding, click, swoosh, from Mixkit (free)
+- Volume, fades, ducking
+- Voice enhance
+- **Waveforms on the timeline** (mediabunny)
+
+### 10.8 Canvas / project
+
+- **Aspect:** 9:16, 1:1, 4:5, 16:9 + **custom W×H**
+- **Resolution:** 720p / 1080p / 4K
+- **Background:** blur / color / image
+- **Frame rate:** 24/25/30/60
+- **Guides:** safe zones, grid
+
+### 10.9 Productivity
+
+- Command palette (⌘K)
+- Right-click menus
+- Copy/paste **style** between items
+- Multi-select + group move
+- Duplicate
+- Keyboard shortcuts everywhere
+- History list
+- Autosave status
+- Tooltips that show shortcuts
+
+### 10.10 Free libraries for all of the above
+
+`react-moveable` · `react-easy-crop` · `react-colorful` · `frimousse` · `@dnd-kit/core` · `react-hotkeys-hook` · `@tanstack/react-virtual` · `sonner` · shadcn `command` / `context-menu` / `menubar` · `next/font` (Google Fonts) · `mediabunny` · `@remotion/transitions` · Mixkit music and SFX · native **ffmpeg** on the worker.
+
+### 10.11 Where each lands
+
+| Phase | Controls from this catalogue |
+|---|---|
+| E3 Pro shell (in progress) | Inspector skeleton, Project canvas (aspect + custom), clip speed/transform sliders, filters grid, basic text add/edit, color picker |
+| E4 Timeline v2 | Text/element/SFX tracks, drag timing, split/trim/multi-select |
+| E5 Canvas editing | **All of 10.1** (move/resize/rotate/snap/align/in-place text edit), crop |
+| E6 Text, elements & look | **All of 10.2, 10.3, 10.6**, rest of 10.5 color/animation, transitions |
+| E7 Audio | **All of 10.7** |
+| Schema v3 (before E4) | Tracks of items with transform, style and animation, so all of the above is stored in the edit plan |

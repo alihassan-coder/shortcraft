@@ -80,8 +80,14 @@ class Settings(BaseSettings):
     job_queue_backend: Literal["inprocess"] = "inprocess"
     redis_url: str = "redis://localhost:6379/0"
 
-    # --- Third-party API keys (unused until agents/transcription land) -----------------
-    anthropic_api_key: SecretStr | None = None
+    # --- AI / third-party (unused until agents/transcription land) ---------------------
+    # AI provider is OpenAI only (LangChain + LangGraph).
+    openai_api_key: SecretStr | None = None
+    # Default chat model id. No default on purpose: pick a current id from OpenAI's docs.
+    openai_model_default: str | None = None
+    # Optional LangSmith tracing for agent runs.
+    langsmith_api_key: SecretStr | None = None
+    langsmith_tracing: bool = False
     deepgram_api_key: SecretStr | None = None
 
     @field_validator("cors_origins", mode="before")

@@ -27,7 +27,7 @@ Upload a phone video of yourself talking. Shortcraft adds captions, cuts the pau
 | Frontend | Next.js 16, React 19, Tailwind CSS v4, shadcn/ui, Remotion, Zustand, Zod |
 | Backend | FastAPI, SQLAlchemy, Alembic, uv |
 | Data | Postgres (Supabase), Cloudflare R2 for video storage |
-| AI | Agents that write an edit plan (JSON) that the editor and renderer read |
+| AI | OpenAI models via LangChain + LangGraph agents that write an edit plan (JSON) |
 
 ## Repository structure
 

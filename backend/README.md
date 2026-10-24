@@ -22,6 +22,21 @@ uv run uvicorn app.main:app --reload --port 8000
 
 Settings come from environment variables or `backend/.env` (`cp .env.example .env`).
 
+## Run against the cloud (Supabase + Cloudflare R2)
+
+Follow [`../docs/SETUP.md`](../docs/SETUP.md) to create the accounts and fill `backend/.env`
+(`DATABASE_URL`, `STORAGE_BACKEND=r2`, `R2_*`, `SUPABASE_*`). Then:
+
+```bash
+uv run alembic upgrade head            # create tables in Supabase
+uv run python -m scripts.check_db      # PASS/FAIL: connects, SELECT version()
+uv run python -m scripts.check_storage # PASS/FAIL: presigned PUT/GET, CORS, multipart, delete
+uv run uvicorn app.main:app --reload --port 8000
+```
+
+Bucket CORS rules to paste in the R2 dashboard: [`infra/r2-cors.json`](infra/r2-cors.json).
+Tests never use the cloud: they force SQLite in memory, local disk and moto (mocked S3).
+
 ## Prod-like local (Postgres + Redis)
 
 ```bash
@@ -34,7 +49,7 @@ Put the same `DATABASE_URL` in `.env` to run the API against it.
 ## Everyday commands
 
 ```bash
-uv run pytest                     # tests (in-memory SQLite, temp upload dir)
+uv run pytest                     # tests (in-memory SQLite, temp dir, moto S3; no network)
 uv run ruff check .               # lint
 uv run ruff format .              # format
 uv run alembic revision --autogenerate -m "describe change"   # new migration

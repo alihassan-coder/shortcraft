@@ -1,5 +1,13 @@
 # AI plan
 
+> **Decision (owner, 2026-10-24): OpenAI models only, run through LangChain + LangGraph.**
+> - **LangGraph** runs the agent workflow.
+> - **LangChain** (`langchain-openai`) loads the models.
+> - Each agent's OpenAI model is a setting in `backend/.env`.
+> - Exact model names and prices are checked against OpenAI's docs when we build the agents (A4).
+>
+> The "If Claude is used" section below is kept only as a reference and is **not part of the product**.
+
 How Shortcraft turns a raw talking video into an edit, and how "describe a change" works.
 Written 2026-10-24. Prices are from Anthropic's current list (cached 2026-10-06); verify them before launch.
 
@@ -68,7 +76,20 @@ The AI never makes a video file. It writes an **edit plan** (JSON) using the **s
 
 That output is exactly what the mock Director in the editor returns today (`lib/editor/mock-director.ts`), so the frontend barely changes.
 
-### How we call Claude
+### How agents run (LangGraph + LangChain)
+
+- **LangGraph graph:**
+  1. `prepare_context` → 5 specialist nodes in parallel (Cut, Caption, Zoom, Hook, Music) → `director` → `validate`.
+  2. Each node returns `EditCommand[]` through `model.with_structured_output(<Pydantic schema>)`.
+  3. Retries per node, and progress events are streamed to the "agents working" screen.
+- **Models:** `init_chat_model("openai:<model>")` (via `langchain-openai`), read per agent from settings (e.g. `AGENT_MODEL_DIRECTOR`, `AGENT_MODEL_CAPTION`). A stronger model for the Director and Cut agents, a cheaper one for Hook, Music and Caption; chosen with evals.
+- **Fallback:** LangChain `.with_fallbacks([...])` to a second OpenAI model, plus retries with backoff.
+- **Prompt edits** ("describe a change") run a small graph: `summarize_plan` → `director` → `validate`.
+- **Packages (backend):** `langgraph`, `langchain-core`, `langchain-openai`.
+- **Keys:** `OPENAI_API_KEY`.
+- **Tracing:** LangSmith is optional, for debugging agent runs (`LANGSMITH_API_KEY`).
+
+### Reference only (not used): Claude notes
 - **SDK:** the official `anthropic` Python SDK in FastAPI background jobs.
 - **Output format:** **structured outputs** (`output_config.format` with a JSON schema generated from the `EditCommand` schema), so the response always parses. Pydantic validates it again before use.
 - **Model:** **`claude-opus-5-5`** (the current default) with **adaptive thinking**, effort set per agent:
@@ -140,7 +161,7 @@ Other costs per 1-minute video (approximate, not verified today):
 | A1 | Worker (arq + Redis) + ffmpeg proxy/audio jobs | Backend R2 storage (in progress) |
 | A2 | Transcription job (Deepgram) → words in `sources[].words` | A1 |
 | A3 | Silence (silero-vad) + filler cuts → first plan with **no LLM** | A2 |
-| A4 | Claude specialists + Director → full first edit | A3 |
+| A4 | LangGraph specialists + Director (OpenAI by default) → full first edit | A3 |
 | A5 | `/plan/edit` endpoint for "describe a change"; frontend swaps the mock Director for it | A4 |
 | A6 | Face tracking (zoom focus), DeepFilterNet voice, music beats | A3 |
 | A7 | Render worker (Remotion) → MP4 to R2 | A1 |
@@ -150,6 +171,7 @@ Other costs per 1-minute video (approximate, not verified today):
 
 ## 7. Keys you will need (in `backend/.env`, never committed)
 
-- `ANTHROPIC_API_KEY`: Claude (from the Anthropic Console)
+- `OPENAI_API_KEY`: AI agents (OpenAI)
+- `LANGSMITH_API_KEY`: optional, for agent tracing
 - `DEEPGRAM_API_KEY`: transcription
 - `REDIS_URL`: job queue (free Upstash Redis, or local)
