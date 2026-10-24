@@ -25,8 +25,10 @@ from app.schemas.upload import (
     SingleUploadTarget,
     UploadCreate,
 )
+from app.services.job_queue import JobQueue
+from app.services.jobs import create_job
 from app.services.projects import get_project
-from app.services.storage import StorageAdapter, source_key
+from app.services.storage import SOURCE_ARTIFACTS, StorageAdapter, source_key
 
 
 def use_multipart(storage: StorageAdapter, size_bytes: int, settings: Settings) -> bool:
@@ -89,13 +91,15 @@ async def complete_upload(
     *,
     max_bytes: int,
     parts: Sequence[CompletedPart] | None = None,
+    proxy_queue: JobQueue | None = None,
 ) -> Source:
     """Mark a source uploaded once its bytes exist in storage (checked with HEAD).
 
-    Multipart uploads are finalized first. Idempotent: completing twice is fine.
+    Multipart uploads are finalized first. With `proxy_queue`, a `proxy` job is created and
+    enqueued the first time the upload completes. Idempotent: completing twice is fine.
     """
     source = await get_source(session, project_id, source_id)
-    if source.status == "uploaded":
+    if source.has_file:
         return source
     if source.status == "aborted":
         raise ConflictError("This upload was aborted; start a new upload")
@@ -124,6 +128,8 @@ async def complete_upload(
     source.upload_id = None
     source.status = "uploaded"
     await session.commit()
+    if proxy_queue is not None:
+        await create_job(session, proxy_queue, project_id, "proxy", source_id=source.id)
     return source
 
 
@@ -134,7 +140,7 @@ async def abort_upload(
     source = await get_source(session, project_id, source_id)
     if source.status == "aborted":
         return source
-    if source.status == "uploaded":
+    if source.has_file:
         raise ConflictError("Upload is already complete")
     if source.upload_id:
         await storage.abort_multipart_upload(source.storage_key, source.upload_id)
@@ -154,7 +160,7 @@ async def source_url(
     local_url: str,
 ) -> tuple[str, int | None]:
     source = await get_source(session, project_id, source_id)
-    if source.status != "uploaded":
+    if not source.has_file:
         raise NotFoundError("Source has not been uploaded yet")
     return await storage.download_url(
         source.storage_key,
@@ -162,3 +168,43 @@ async def source_url(
         content_type=source.content_type,
         local_url=local_url,
     )
+
+
+ARTIFACT_FIELDS: dict[str, str] = {
+    "proxy": "proxy-720p.mp4",
+    "audio": "audio-16k.wav",
+    "sprite": "sprite.jpg",
+    "sprite_index": "sprite.json",
+    "peaks": "peaks.json",
+}
+"""Response field -> artifact file name."""
+
+
+def artifact_key(source: Source, name: str) -> str | None:
+    return {
+        "proxy-720p.mp4": source.proxy_key,
+        "audio-16k.wav": source.audio_key,
+        "sprite.jpg": source.sprite_key,
+        "sprite.json": source.sprite_index_key,
+        "peaks.json": source.peaks_key,
+    }[name]
+
+
+async def artifact_urls(
+    storage: StorageAdapter, source: Source, *, local_url_for: Callable[[str], str]
+) -> dict[str, tuple[str, int | None] | None]:
+    """Playback/download URL for each artifact the proxy job made (None if not made)."""
+    urls: dict[str, tuple[str, int | None] | None] = {}
+    for field, name in ARTIFACT_FIELDS.items():
+        key = artifact_key(source, name)
+        urls[field] = (
+            await storage.download_url(
+                key,
+                filename=name,
+                content_type=SOURCE_ARTIFACTS[name],
+                local_url=local_url_for(name),
+            )
+            if key
+            else None
+        )
+    return urls

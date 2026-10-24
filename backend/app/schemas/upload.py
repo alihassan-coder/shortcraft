@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.config import ALLOWED_VIDEO_TYPES
+from app.schemas.job import JobRead
 
 
 class _CamelModel(BaseModel):
@@ -81,7 +82,15 @@ class SourceRead(BaseModel):
     filename: str
     content_type: str
     size_bytes: int
+    # pending | uploaded | processing | ready | failed | aborted
     status: str
+    # Filled by the proxy job. width/height are the upright (display) size.
+    width: int | None = None
+    height: int | None = None
+    duration_ms: int | None = None
+    fps: float | None = None
+    video_codec: str | None = None
+    audio_codec: str | None = None
     created_at: datetime
 
 
@@ -96,3 +105,26 @@ class SourceUrl(BaseModel):
 
     url: str
     expires_in: int | None = None
+
+
+class SourceUrls(BaseModel):
+    """URLs of the original and of each proxy-job artifact (None until it exists).
+
+    - proxy: 720p H.264 MP4 for the editor
+    - audio: 16 kHz mono WAV (transcription)
+    - sprite / sprite_index: thumbnail sheet (JPEG) and its JSON index {frames: [{t, x, y}]}
+    - peaks: waveform JSON {peaks_per_second, duration_ms, count, peaks: [0..1]}
+    """
+
+    original: SourceUrl | None = None
+    proxy: SourceUrl | None = None
+    audio: SourceUrl | None = None
+    sprite: SourceUrl | None = None
+    sprite_index: SourceUrl | None = None
+    peaks: SourceUrl | None = None
+
+
+class SourceDetail(SourceRead):
+    urls: SourceUrls
+    # Latest proxy job for this source (poll it, or this endpoint, until it finishes).
+    proxy_job: JobRead | None = None

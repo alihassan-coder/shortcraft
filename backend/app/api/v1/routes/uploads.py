@@ -5,7 +5,9 @@
    - "multipart" (R2, big files): PUT each `partSize` slice to `parts[i].url`, keep each
      response's `ETag` header.
 2. POST .../sources/{sid}/complete (body `{"parts": [{"partNumber", "etag"}]}` for multipart).
+   This also enqueues a `proxy` job (720p preview, audio, thumbnails, waveform).
 3. GET .../sources/{sid}/url -> where to play/download it.
+4. GET .../sources/{sid} -> metadata, artifact URLs and the latest proxy job.
 
 POST .../sources/{sid}/abort cancels a pending upload.
 
@@ -18,12 +20,24 @@ import uuid
 from fastapi import APIRouter, Request, status
 from fastapi.responses import FileResponse
 
-from app.api.deps import SessionDep, SettingsDep, StorageDep
-from app.core.errors import NotFoundError
+from app.api.deps import JobQueueDep, SessionDep, SettingsDep, StorageDep
+from app.core.config import Settings
+from app.core.errors import ConflictError, NotFoundError
 from app.db.models import Source
-from app.schemas.upload import SourceRead, SourceUrl, UploadComplete, UploadCreate, UploadCreated
+from app.schemas.job import JobRead
+from app.schemas.upload import (
+    SourceDetail,
+    SourceRead,
+    SourceUrl,
+    SourceUrls,
+    UploadComplete,
+    UploadCreate,
+    UploadCreated,
+)
+from app.services import jobs as jobs_service
 from app.services import uploads as service
-from app.services.storage import LocalStorage, StorageAdapter
+from app.services.job_queue import JobQueue
+from app.services.storage import SOURCE_ARTIFACTS, LocalStorage, StorageAdapter
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["uploads"])
 
@@ -36,6 +50,10 @@ def _local(storage: StorageAdapter) -> LocalStorage:
 
 def _absolute(request: Request, base_url: str, name: str, **params: str) -> str:
     return f"{base_url.rstrip('/')}{request.app.url_path_for(name, **params)}"
+
+
+def _proxy_queue(settings: Settings, queue: JobQueue) -> JobQueue | None:
+    return queue if settings.proxy_on_upload else None
 
 
 @router.post("/uploads", response_model=UploadCreated, status_code=status.HTTP_201_CREATED)
@@ -70,13 +88,21 @@ async def put_source_content(
     session: SessionDep,
     storage: StorageDep,
     settings: SettingsDep,
+    queue: JobQueueDep,
 ):
     """LocalStorage upload target: receives the raw file body (streamed to disk)."""
     local = _local(storage)
     source = await service.get_source(session, project_id, source_id)
+    if source.has_file:
+        raise ConflictError("Upload is already complete")
     await local.write(source.storage_key, request.stream(), max_bytes=source.size_bytes)
     return await service.complete_upload(
-        session, storage, project_id, source_id, max_bytes=settings.max_upload_bytes
+        session,
+        storage,
+        project_id,
+        source_id,
+        max_bytes=settings.max_upload_bytes,
+        proxy_queue=_proxy_queue(settings, queue),
     )
 
 
@@ -87,6 +113,7 @@ async def complete_upload(
     session: SessionDep,
     storage: StorageDep,
     settings: SettingsDep,
+    queue: JobQueueDep,
     data: UploadComplete | None = None,
 ):
     return await service.complete_upload(
@@ -96,6 +123,7 @@ async def complete_upload(
         source_id,
         max_bytes=settings.max_upload_bytes,
         parts=data.parts if data else None,
+        proxy_queue=_proxy_queue(settings, queue),
     )
 
 
@@ -136,11 +164,76 @@ async def get_source_content(
     """LocalStorage only: serves the video (supports Range requests)."""
     local = _local(storage)
     source = await service.get_source(session, project_id, source_id)
-    if source.status != "uploaded":
+    if not source.has_file:
         raise NotFoundError("Source has not been uploaded yet")
     return FileResponse(
         local.path_for(source.storage_key),
         media_type=source.content_type,
         filename=source.filename,
         content_disposition_type="inline",
+    )
+
+
+@router.get("/sources/{source_id}", response_model=SourceDetail)
+async def get_source(
+    project_id: uuid.UUID,
+    source_id: uuid.UUID,
+    request: Request,
+    session: SessionDep,
+    storage: StorageDep,
+    settings: SettingsDep,
+):
+    """Metadata (filled by the proxy job), URLs of the original and of every artifact, and the
+    latest proxy job. R2 URLs are presigned (short-lived); local URLs point at this API."""
+    source = await service.get_source(session, project_id, source_id)
+    ids = {"project_id": str(project_id), "source_id": str(source_id)}
+    base = settings.public_base_url
+
+    original = None
+    if source.has_file:
+        url, expires_in = await storage.download_url(
+            source.storage_key,
+            filename=source.filename,
+            content_type=source.content_type,
+            local_url=_absolute(request, base, "get_source_content", **ids),
+        )
+        original = SourceUrl(url=url, expires_in=expires_in)
+
+    artifacts = await service.artifact_urls(
+        storage,
+        source,
+        local_url_for=lambda name: _absolute(request, base, "get_source_file", name=name, **ids),
+    )
+    urls = SourceUrls(
+        original=original,
+        **{
+            field: SourceUrl(url=value[0], expires_in=value[1]) if value else None
+            for field, value in artifacts.items()
+        },
+    )
+    job = await jobs_service.latest_job(session, project_id, source_id, "proxy")
+    return SourceDetail(
+        **SourceRead.model_validate(source).model_dump(),
+        urls=urls,
+        proxy_job=JobRead.model_validate(job) if job else None,
+    )
+
+
+@router.get(
+    "/sources/{source_id}/files/{name}", name="get_source_file", response_class=FileResponse
+)
+async def get_source_file(
+    project_id: uuid.UUID, source_id: uuid.UUID, name: str, session: SessionDep, storage: StorageDep
+):
+    """LocalStorage only: serves a proxy-job artifact (proxy-720p.mp4, audio-16k.wav,
+    sprite.jpg, sprite.json, peaks.json)."""
+    local = _local(storage)
+    if name not in SOURCE_ARTIFACTS:
+        raise NotFoundError("Unknown file")
+    source = await service.get_source(session, project_id, source_id)
+    key = service.artifact_key(source, name)
+    if key is None:
+        raise NotFoundError("File has not been made yet")
+    return FileResponse(
+        local.path_for(key), media_type=SOURCE_ARTIFACTS[name], content_disposition_type="inline"
     )

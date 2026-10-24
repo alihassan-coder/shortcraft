@@ -13,6 +13,7 @@ from app.core.logging import configure_logging
 from app.db.session import create_engine, create_sessionmaker
 from app.services.job_queue import build_job_queue
 from app.services.storage import build_storage
+from app.worker.context import JobContext
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -26,11 +27,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = engine
         app.state.sessionmaker = create_sessionmaker(engine)
         app.state.storage = build_storage(settings)
-        app.state.job_queue = build_job_queue(settings)
+        job_ctx = JobContext(settings, app.state.sessionmaker, app.state.storage)
+        app.state.job_queue = build_job_queue(settings, job_ctx)
         app.state.token_verifier = TokenVerifier(settings)
         try:
             yield
         finally:
+            await app.state.job_queue.aclose()
             await engine.dispose()
 
     app = FastAPI(title="Shortcraft API", version="0.1.0", debug=settings.debug, lifespan=lifespan)

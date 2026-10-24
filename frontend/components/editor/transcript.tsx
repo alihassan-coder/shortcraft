@@ -31,10 +31,10 @@ export function Transcript() {
   const breakpoint = useBreakpoint();
   // Word under the last right-click; one menu serves the whole transcript.
   const [menuWordId, setMenuWordId] = useState<string | null>(null);
-  const menuWord = words.find((w) => w.id === menuWordId);
   // One source per project for now; the transcript follows the first one.
   const source = plan.sources[0];
   const words = source.words;
+  const menuWord = words.find((w) => w.id === menuWordId);
   const now = tl.toSource(currentMs);
   const selected = words.find((w) => w.id === selectedWordId);
   const scroller = useRef<HTMLDivElement>(null);

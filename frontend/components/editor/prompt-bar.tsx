@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowUp, RotateCcw, Sparkles } from "lucide-react";
-import { PROMPT_SUGGESTIONS, runPrompt } from "@/lib/editor/mock-director";
+import { runPrompt } from "@/lib/editor/mock-director";
 import { undo } from "@/lib/editor/store";
 import { cn } from "@/lib/utils";
 
@@ -78,31 +78,17 @@ export function PromptBar() {
           e.preventDefault();
           send(value);
         }}
-        className="flex items-center gap-2 rounded-full border bg-white py-1.5 pr-1.5 pl-4 focus-within:border-ink focus-within:ring-3 focus-within:ring-rec/15"
+        className="flex items-center gap-2 rounded-full border bg-white py-1 pr-1 pl-3.5 focus-within:border-ink focus-within:ring-3 focus-within:ring-rec/15"
       >
         <Sparkles className="size-4 shrink-0 text-rec" />
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.stopPropagation()}
-          placeholder="Describe a change…"
+          placeholder="Describe a change, like “make it calmer”"
           aria-label="Describe a change"
-          className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          className="h-8 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
         />
-        {!value && (
-          <div className="hidden gap-1 xl:flex">
-            {PROMPT_SUGGESTIONS.slice(0, 2).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => send(s)}
-                className="h-8 rounded-full bg-surface px-3 text-xs whitespace-nowrap text-ink-2 hover:text-ink"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
         <button
           type="submit"
           disabled={!value.trim() || busy}

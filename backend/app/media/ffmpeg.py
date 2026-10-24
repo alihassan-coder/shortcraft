@@ -16,6 +16,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+import anyio
+
 PROXY_SHORT_SIDE = 720
 
 
@@ -50,6 +52,7 @@ class ProbeResult:
     video_codec: str
     audio_codec: str | None
     rotation: int  # degrees, normalized to 0/90/180/270
+    pix_fmt: str | None = None
     audio_sample_rate: int | None = None
     audio_channels: int | None = None
     format_name: str | None = None
@@ -110,13 +113,13 @@ async def _kill(proc: asyncio.subprocess.Process) -> None:
             await proc.wait()
 
 
-async def _run(argv: list[str], *, what: str, timeout: float | None) -> tuple[bytes, bytes]:
+async def _run(argv: list[str], *, what: str, time_limit: float | None) -> tuple[bytes, bytes]:
     proc = await _spawn(argv)
     try:
-        async with asyncio.timeout(timeout):
+        async with asyncio.timeout(time_limit):
             stdout, stderr = await proc.communicate()
     except TimeoutError as exc:
-        raise MediaError(f"{what} timed out after {timeout:g}s") from exc
+        raise MediaError(f"{what} timed out after {time_limit:g}s") from exc
     finally:
         await _kill(proc)
     if proc.returncode != 0:
@@ -152,20 +155,20 @@ def _rotation(stream: dict[str, Any]) -> int:
     if raw is None:
         raw = (stream.get("tags") or {}).get("rotate")
     try:
-        degrees = int(round(float(raw or 0)))
+        degrees = round(float(raw or 0))
     except TypeError, ValueError:
         return 0
     return (round(degrees / 90) * 90) % 360
 
 
 async def probe(
-    path: Path, *, tools: MediaTools = DEFAULT_TOOLS, timeout: float | None = 120
+    path: Path, *, tools: MediaTools = DEFAULT_TOOLS, time_limit: float | None = 120
 ) -> ProbeResult:
     exe = _resolve(tools.ffprobe, "FFPROBE_PATH")
     argv = [
         exe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path),
     ]  # fmt: skip
-    stdout, _ = await _run(argv, what="ffprobe", timeout=timeout)
+    stdout, _ = await _run(argv, what="ffprobe", time_limit=time_limit)
     try:
         info = json.loads(stdout or b"{}")
     except json.JSONDecodeError as exc:
@@ -176,7 +179,8 @@ async def probe(
         (
             s
             for s in streams
-            if s.get("codec_type") == "video" and not (s.get("disposition") or {}).get("attached_pic")
+            if s.get("codec_type") == "video"
+            and not (s.get("disposition") or {}).get("attached_pic")
         ),
         None,
     )
@@ -201,6 +205,7 @@ async def probe(
         video_codec=str(video.get("codec_name") or "unknown"),
         audio_codec=str(audio.get("codec_name")) if audio else None,
         rotation=_rotation(video),
+        pix_fmt=video.get("pix_fmt"),
         audio_sample_rate=int(audio["sample_rate"]) if audio and audio.get("sample_rate") else None,
         audio_channels=int(audio["channels"]) if audio and audio.get("channels") else None,
         format_name=fmt.get("format_name"),
@@ -211,7 +216,7 @@ async def probe(
 
 
 def _even(value: float) -> int:
-    return max(2, int(round(value / 2)) * 2)
+    return max(2, round(value / 2) * 2)
 
 
 def proxy_size(display_width: int, display_height: int, short_side: int = PROXY_SHORT_SIDE):
@@ -229,7 +234,7 @@ async def make_proxy(
     info: ProbeResult | None = None,
     crf: int = 23,
     tools: MediaTools = DEFAULT_TOOLS,
-    timeout: float | None = None,
+    time_limit: float | None = None,
 ) -> ProbeResult:
     """720p H.264 (yuv420p) + AAC MP4 with `+faststart`, playable in every browser.
 
@@ -248,7 +253,7 @@ async def make_proxy(
         "-c:a", "aac", "-b:a", "128k", "-ac", "2",
         "-movflags", "+faststart", str(dst),
     ]  # fmt: skip
-    await _run(argv, what="ffmpeg proxy", timeout=timeout)
+    await _run(argv, what="ffmpeg proxy", time_limit=time_limit)
     return await probe(dst, tools=tools)
 
 
@@ -261,14 +266,14 @@ async def extract_audio(
     *,
     sample_rate: int = 16_000,
     tools: MediaTools = DEFAULT_TOOLS,
-    timeout: float | None = None,
+    time_limit: float | None = None,
 ) -> None:
     """Mono 16-bit PCM WAV at `sample_rate` (16 kHz is what speech-to-text models want)."""
     argv = [
         *_ffmpeg(tools), "-i", str(src), "-map", "0:a:0", "-vn",
         "-ac", "1", "-ar", str(sample_rate), "-c:a", "pcm_s16le", str(dst),
     ]  # fmt: skip
-    await _run(argv, what="ffmpeg audio", timeout=timeout)
+    await _run(argv, what="ffmpeg audio", time_limit=time_limit)
 
 
 # --- thumbnails --------------------------------------------------------------------------
@@ -284,7 +289,7 @@ async def thumbnail_sprite(
     max_frames: int = 100,
     info: ProbeResult | None = None,
     tools: MediaTools = DEFAULT_TOOLS,
-    timeout: float | None = None,
+    time_limit: float | None = None,
 ) -> dict[str, Any]:
     """One JPEG sprite sheet (`tile` thumbnails per row) and its index.
 
@@ -309,8 +314,8 @@ async def thumbnail_sprite(
         *_ffmpeg(tools), "-i", str(src), "-an", "-sn", "-vf", vf,
         "-frames:v", "1", "-q:v", "4", str(dst),
     ]  # fmt: skip
-    await _run(argv, what="ffmpeg thumbnails", timeout=timeout)
-    if not dst.is_file():
+    await _run(argv, what="ffmpeg thumbnails", time_limit=time_limit)
+    if not await anyio.Path(dst).is_file():
         raise MediaError("ffmpeg did not write the sprite sheet")
 
     frames = [
@@ -341,7 +346,7 @@ async def waveform_peaks(
     *,
     sample_rate: int = 8_000,
     tools: MediaTools = DEFAULT_TOOLS,
-    timeout: float | None = None,
+    time_limit: float | None = None,
 ) -> list[float]:
     """Peak amplitude per 1/`peaks_per_second` s bucket, scaled so the loudest bucket is 1.0.
 
@@ -381,11 +386,11 @@ async def waveform_peaks(
             reduce(pending)
 
     try:
-        async with asyncio.timeout(timeout):
+        async with asyncio.timeout(time_limit):
             _, stderr = await asyncio.gather(read_stdout(), proc.stderr.read())
             await proc.wait()
     except TimeoutError as exc:
-        raise MediaError(f"ffmpeg waveform timed out after {timeout:g}s") from exc
+        raise MediaError(f"ffmpeg waveform timed out after {time_limit:g}s") from exc
     finally:
         await _kill(proc)
     if proc.returncode != 0:
@@ -403,7 +408,7 @@ _JSON_BLOCK = re.compile(rb"\{[^{}]*\}", re.DOTALL)
 
 
 async def loudness(
-    src: Path, *, tools: MediaTools = DEFAULT_TOOLS, timeout: float | None = None
+    src: Path, *, tools: MediaTools = DEFAULT_TOOLS, time_limit: float | None = None
 ) -> float:
     """Integrated loudness (LUFS, EBU R128) from a `loudnorm` analysis pass.
 
@@ -414,7 +419,7 @@ async def loudness(
         exe, "-hide_banner", "-nostdin", "-nostats", "-i", str(src), "-map", "0:a:0", "-vn",
         "-af", "loudnorm=print_format=json", "-f", "null", "-",
     ]  # fmt: skip
-    _, stderr = await _run(argv, what="ffmpeg loudness", timeout=timeout)
+    _, stderr = await _run(argv, what="ffmpeg loudness", time_limit=time_limit)
     blocks = _JSON_BLOCK.findall(stderr)
     if not blocks:
         raise MediaError("loudnorm printed no measurements")

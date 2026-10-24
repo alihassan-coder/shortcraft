@@ -74,7 +74,7 @@ async def _process(
     progress: Progress,
 ) -> dict[str, Any]:
     tools = ctx.tools
-    timeout = float(ctx.settings.job_timeout_seconds)
+    limit = float(ctx.settings.job_timeout_seconds)
     work_dir = ctx.settings.work_dir
     if work_dir is not None:
         await anyio.Path(work_dir).mkdir(parents=True, exist_ok=True)
@@ -93,7 +93,7 @@ async def _process(
         await progress(20)
 
         proxy_info = await make_proxy(
-            original, files["proxy-720p.mp4"], info=info, tools=tools, timeout=timeout
+            original, files["proxy-720p.mp4"], info=info, tools=tools, time_limit=limit
         )
         await progress(60)
 
@@ -104,7 +104,7 @@ async def _process(
             SPRITE_TILE,
             info=proxy_info,
             tools=tools,
-            timeout=timeout,
+            time_limit=limit,
         )
         await _write_json(files["sprite.json"], sprite_index)
         await progress(70)
@@ -112,10 +112,10 @@ async def _process(
         lufs: float | None = None
         made = ["proxy-720p.mp4", "sprite.jpg", "sprite.json"]
         if info.has_audio:
-            await extract_audio(original, files["audio-16k.wav"], tools=tools, timeout=timeout)
+            await extract_audio(original, files["audio-16k.wav"], tools=tools, time_limit=limit)
             await progress(80)
             peaks = await waveform_peaks(
-                files["audio-16k.wav"], PEAKS_PER_SECOND, tools=tools, timeout=timeout
+                files["audio-16k.wav"], PEAKS_PER_SECOND, tools=tools, time_limit=limit
             )
             await _write_json(
                 files["peaks.json"],
@@ -126,7 +126,7 @@ async def _process(
                     "peaks": peaks,
                 },
             )
-            measured = await loudness(files["audio-16k.wav"], tools=tools, timeout=timeout)
+            measured = await loudness(files["audio-16k.wav"], tools=tools, time_limit=limit)
             lufs = round(measured, 2) if math.isfinite(measured) else None
             made += ["audio-16k.wav", "peaks.json"]
             await progress(88)

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import {
+  Command,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -122,6 +123,7 @@ export function CommandPalette() {
       description="Search editor actions or ask the agents for a change"
       className="top-[18%] sm:max-w-[560px]"
     >
+      <Command>
       <CommandInput value={query} onValueChange={setQuery} placeholder="Search actions, or describe a change…" />
       <CommandList className="max-h-[min(420px,60vh)] p-1">
         {!ask && <CommandEmpty>No matching action.</CommandEmpty>}
@@ -160,6 +162,7 @@ export function CommandPalette() {
           </CommandGroup>
         )}
       </CommandList>
+      </Command>
     </CommandDialog>
   );
 }

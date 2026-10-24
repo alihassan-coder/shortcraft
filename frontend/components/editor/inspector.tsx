@@ -109,7 +109,10 @@ type ClipPatch = Extract<EditCommand, { type: "updateClip" }>["patch"];
 function ClipInspector({ clip }: { clip: Clip }) {
   const update = (patch: ClipPatch) => dispatch({ type: "updateClip", clipId: clip.id, patch });
   const { frame, color } = clip;
-  const lengthMs = (clip.outMs - clip.inMs) / clip.speed;
+  // Length on the edited timeline: speed and cuts both count.
+  const lengthMs = useTimeline({ original: false })
+    .pieces.filter((p) => p.clipId === clip.id)
+    .reduce((sum, p) => sum + p.outEnd - p.outStart, 0);
 
   return (
     <>
@@ -123,8 +126,8 @@ function ClipInspector({ clip }: { clip: Clip }) {
         <IconButton label="Delete clip" shortcut="delete" onClick={() => deleteClip(clip.id)}>
           <Trash2 className="size-4" />
         </IconButton>
-        <span className="ml-auto font-mono text-xs text-muted-foreground tabular-nums" data-clip-length>
-          {formatTime(lengthMs, true)}
+        <span className="ml-auto text-xs text-muted-foreground">
+          Length <span className="font-mono text-ink tabular-nums" data-clip-length>{formatTime(lengthMs, true)}</span>
         </span>
       </div>
 

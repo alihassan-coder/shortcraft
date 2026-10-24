@@ -43,7 +43,8 @@ async def delete_project(
     session: AsyncSession, storage: StorageAdapter, project_id: uuid.UUID
 ) -> None:
     project = await get_project(session, project_id)
-    keys = list(await session.scalars(select(Source.storage_key).filter_by(project_id=project_id)))
+    sources = await session.scalars(select(Source).filter_by(project_id=project_id))
+    keys = [key for source in sources for key in source.stored_keys()]
     await session.delete(project)
     await session.commit()
     for key in keys:

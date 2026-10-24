@@ -102,7 +102,5 @@ async def run_job(ctx: JobContext, job_id: uuid.UUID) -> None:
             finished_at=utcnow(),
         )
         return
-    await _set(
-        ctx, job_id, status="succeeded", progress=100, result=result, finished_at=utcnow()
-    )
+    await _set(ctx, job_id, status="succeeded", progress=100, result=result, finished_at=utcnow())
     logger.info("Job %s (%s) succeeded", job_id, job.kind)

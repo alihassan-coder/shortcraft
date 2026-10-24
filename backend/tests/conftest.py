@@ -1,4 +1,7 @@
+import contextlib
 import copy
+import shutil
+import subprocess
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
@@ -137,6 +140,10 @@ def make_settings(tmp_path: Path, **overrides: Any) -> Settings:
         "supabase_jwt_secret": None,
         "supabase_jwks_url": None,
         "r2_public_base_url": None,
+        "job_queue_backend": "inprocess",
+        "redis_url": None,
+        "proxy_on_upload": False,
+        "work_dir": tmp_path / "work",
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)  # type: ignore[call-arg]
@@ -197,3 +204,62 @@ def mocked_s3(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("MOTO_S3_CUSTOM_ENDPOINTS", R2_ENDPOINT)
     with mock_aws():
         yield
+
+
+# --- markers + ffmpeg fixtures ---------------------------------------------------------------
+
+FFMPEG_AVAILABLE = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Tests that use the HTTP client are `integration`, the rest `unit` (unless marked).
+    `ffmpeg` tests are skipped when the binaries are not installed."""
+    skip_ffmpeg = pytest.mark.skip(reason="ffmpeg/ffprobe not installed")
+    for item in items:
+        names = {mark.name for mark in item.iter_markers()}
+        if not names & {"unit", "integration"}:
+            fixtures = getattr(item, "fixturenames", ())
+            uses_http = "client" in fixtures or "media_client" in fixtures
+            item.add_marker(pytest.mark.integration if uses_http else pytest.mark.unit)
+        if "ffmpeg" in names and not FFMPEG_AVAILABLE:
+            item.add_marker(skip_ffmpeg)
+
+
+def _ffmpeg(*args: str) -> None:
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *args],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+
+
+@pytest.fixture(scope="session")
+def media_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Tiny clips made with ffmpeg once per session (3 s, 320x568 portrait, 30 fps, 440 Hz)."""
+    if not FFMPEG_AVAILABLE:
+        pytest.skip("ffmpeg/ffprobe not installed")
+    root = tmp_path_factory.mktemp("media")
+    lavfi = [
+        "-f", "lavfi", "-i", "testsrc=size=320x568:rate=30",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+        "-t", "3",
+    ]  # fmt: skip
+    _ffmpeg(*lavfi, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(root / "clip.mp4"))
+    # Same clip in a .mov with phone-style rotation metadata (display matrix, 90 degrees).
+    _ffmpeg("-display_rotation", "90", "-i", str(root / "clip.mp4"), "-c", "copy",
+            str(root / "rotated.mov"))  # fmt: skip
+    # Bigger than 720p, 1 s: the proxy must scale it down.
+    _ffmpeg("-f", "lavfi", "-i", "testsrc=size=1080x1920:rate=30", "-t", "1",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            str(root / "big.mp4"))  # fmt: skip
+    # Video only, no audio track.
+    _ffmpeg("-f", "lavfi", "-i", "testsrc=size=320x240:rate=25", "-t", "2",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(root / "silent.mp4"))  # fmt: skip
+    (root / "corrupt.mp4").write_bytes(b"ftypmp42" + b"not a video" * 200)
+    # HEVC in .mov (what iPhones record) when this ffmpeg build has libx265.
+    with contextlib.suppress(subprocess.CalledProcessError):
+        _ffmpeg(*lavfi, "-c:v", "libx265", "-tag:v", "hvc1", "-pix_fmt", "yuv420p",
+                "-x265-params", "log-level=error", "-c:a", "aac",
+                str(root / "hevc.mov"))  # fmt: skip
+    return root
