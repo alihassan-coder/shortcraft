@@ -202,7 +202,9 @@ async def get_source(
     artifacts = await service.artifact_urls(
         storage,
         source,
-        local_url_for=lambda name: _absolute(request, base, "get_source_file", name=name, **ids),
+        local_url_for=lambda name: _absolute(
+            request, base, "get_source_file", artifact=name, **ids
+        ),
     )
     urls = SourceUrls(
         original=original,
@@ -220,20 +222,26 @@ async def get_source(
 
 
 @router.get(
-    "/sources/{source_id}/files/{name}", name="get_source_file", response_class=FileResponse
+    "/sources/{source_id}/files/{artifact}", name="get_source_file", response_class=FileResponse
 )
 async def get_source_file(
-    project_id: uuid.UUID, source_id: uuid.UUID, name: str, session: SessionDep, storage: StorageDep
+    project_id: uuid.UUID,
+    source_id: uuid.UUID,
+    artifact: str,
+    session: SessionDep,
+    storage: StorageDep,
 ):
     """LocalStorage only: serves a proxy-job artifact (proxy-720p.mp4, audio-16k.wav,
     sprite.jpg, sprite.json, peaks.json)."""
     local = _local(storage)
-    if name not in SOURCE_ARTIFACTS:
+    if artifact not in SOURCE_ARTIFACTS:
         raise NotFoundError("Unknown file")
     source = await service.get_source(session, project_id, source_id)
-    key = service.artifact_key(source, name)
+    key = service.artifact_key(source, artifact)
     if key is None:
         raise NotFoundError("File has not been made yet")
     return FileResponse(
-        local.path_for(key), media_type=SOURCE_ARTIFACTS[name], content_disposition_type="inline"
+        local.path_for(key),
+        media_type=SOURCE_ARTIFACTS[artifact],
+        content_disposition_type="inline",
     )

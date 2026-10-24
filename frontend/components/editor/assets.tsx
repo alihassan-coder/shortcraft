@@ -230,7 +230,7 @@ function TextPanel() {
   const selectedId = useSelectedId("text");
   return (
     <>
-      <PanelHeader title="Text" description="Add a title at the playhead. Edit it in the Inspector." />
+      <PanelHeader title="Text" description="Adds a title at the playhead." />
       <Group>
         <button
           onClick={() => addTextAtPlayhead()}
@@ -466,7 +466,7 @@ function FiltersPanel() {
 
   return (
     <>
-      <PanelHeader title="Filters" description="A color look for a clip. Fine-tune it in the Inspector." />
+      <PanelHeader title="Filters" description="A color look for one clip or all of them." />
       <Group>
         <p className="mb-2.5 text-xs text-muted-foreground">
           Applies to <span className="text-ink">Clip {index + 1}</span>

@@ -137,3 +137,34 @@ async def test_multipart_abort(storage: R2Storage) -> None:
 async def test_client_errors_become_storage_errors(storage: R2Storage) -> None:
     with pytest.raises(StorageError, match="NoSuchBucket"):
         await storage._call(storage.client.get_object, Bucket="does-not-exist", Key="k")
+
+
+async def test_upload_from_and_download_to(storage: R2Storage, tmp_path: Path) -> None:
+    src = tmp_path / "peaks.json"
+    src.write_bytes(b'{"peaks": [0.5, 1.0]}')
+    key = "projects/p/sources/s/peaks.json"
+    await storage.upload_from(src, key, "application/json")
+    head = await storage.head(key)
+    assert head is not None and head.content_type == "application/json"
+
+    dst = tmp_path / "copy.json"
+    await storage.download_to(key, dst)
+    assert dst.read_bytes() == src.read_bytes()
+
+    with pytest.raises(StorageError):
+        await storage.download_to("projects/p/missing.mp4", tmp_path / "missing.mp4")
+
+
+async def test_local_upload_from_and_download_to(tmp_path: Path) -> None:
+    from app.core.errors import NotFoundError
+    from app.services.storage import LocalStorage
+
+    local = LocalStorage(tmp_path / "root")
+    src = tmp_path / "a.bin"
+    src.write_bytes(b"abc")
+    await local.upload_from(src, "projects/p/sources/s/sprite.jpg", "image/jpeg")
+    assert (tmp_path / "root/projects/p/sources/s/sprite.jpg").read_bytes() == b"abc"
+    await local.download_to("projects/p/sources/s/sprite.jpg", tmp_path / "b.bin")
+    assert (tmp_path / "b.bin").read_bytes() == b"abc"
+    with pytest.raises(NotFoundError):
+        await local.download_to("projects/p/nope", tmp_path / "c.bin")

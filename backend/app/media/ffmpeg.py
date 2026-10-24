@@ -300,9 +300,12 @@ async def thumbnail_sprite(
     if every_s <= 0 or tile < 1:
         raise ValueError("every_s must be > 0 and tile >= 1")
     info = info or await probe(src, tools=tools)
+    # The last frame starts one frame before the end (container duration may also include a
+    # few ms of trailing audio), so only count thumbnail times that land on a real frame.
     duration_s = info.duration_ms / 1000
+    last_frame_s = max(0.0, duration_s - 1 / (info.fps or 30))
     interval = max(every_s, duration_s / max_frames)
-    count = max(1, min(max_frames, math.ceil(duration_s / interval - 1e-9)))
+    count = max(1, min(max_frames, math.ceil(last_frame_s / interval - 1e-9)))
     columns = min(tile, count)
     rows = math.ceil(count / columns)
     width = _even(thumb_width)

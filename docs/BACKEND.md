@@ -23,14 +23,22 @@ back to SQLite + local disk automatically.
   |        |                         |                        |                |
   |        v                         v                        v                |
   |  db/ (SQLAlchemy 2 async)   StorageAdapter           JobQueue              |
-  |                             - LocalStorage           - InProcess (no-op)   |
-  |                             - R2Storage (boto3)      - arq + Redis [later] |
+  |                             - LocalStorage           - InProcess (asyncio) |
+  |                             - R2Storage (boto3)      - Arq (Redis)         |
   +--------|-------------------------|------------------------|---------------+
            v                         v                        v
-   SQLite (no .env / tests)    backend/var/uploads      (worker, later:
-   Supabase Postgres (asyncpg) Cloudflare R2 (S3 API)    ffmpeg proxy, Deepgram,
-                                                         OpenAI agents, Remotion)
+   SQLite (no .env / tests)    backend/var/uploads      worker/runner.run_job
+   Supabase Postgres (asyncpg) Cloudflare R2 (S3 API)    in the API process (no Redis)
+                                                         or `arq app.worker.main...`
+                                                         -> handlers: proxy (ffmpeg, media/)
+                                                         later: Deepgram, agents, Remotion
 ```
+
+Jobs: the API creates a `jobs` row and enqueues only its id. `run_job` (same code in both
+queues) sets `running` + `started_at`, calls the handler for the kind with a `progress(0-100)`
+callback, then writes `succeeded` + `result` or `failed` + `error`, and `finished_at`. Finished
+jobs are never re-run; a job left `running` by a crashed worker runs again. Kinds without a
+handler yet (`transcribe`, `plan`, `render`) stay `queued`.
 
 Shared resources (engine, sessionmaker, storage, job queue, token verifier, settings) are built
 once in the `create_app()` lifespan and stored on `app.state`; dependencies in `api/deps.py`
@@ -56,10 +64,16 @@ backend/
     schemas/edit_plan.py    Pydantic mirror of the Zod EditPlan v2
     schemas/                project, plan, upload, job request/response models
     services/               projects, plans, uploads, jobs, storage (adapters, keys), job_queue
+    media/ffmpeg.py         probe, make_proxy, extract_audio, thumbnail_sprite, waveform_peaks,
+                            loudness (async ffmpeg/ffprobe subprocesses, no shell)
+    worker/runner.py        run_job: job lifecycle + handler registry
+    worker/proxy.py         the proxy pipeline (download -> ffmpeg steps -> upload -> Source)
+    worker/main.py          arq WorkerSettings (`uv run arq app.worker.main.WorkerSettings`)
   migrations/               Alembic (async env, URL from settings)
   scripts/                  check_db.py, check_storage.py (PASS/FAIL against the real cloud)
   infra/r2-cors.json        bucket CORS rules to paste in the R2 dashboard
-  tests/                    pytest + httpx, in-memory SQLite, moto for R2 (no network)
+  tests/                    pytest + httpx, in-memory SQLite, moto for R2, fakeredis for arq,
+                            tiny clips generated with ffmpeg (no network)
   .env.example              every setting, documented
   docker-compose.yml        postgres:16 + redis:7 (optional)
 ```
@@ -77,12 +91,14 @@ backend/
 | PUT | `/api/v1/projects/{id}/plan` | body = EditPlan v2. First PUT creates (rev 1). Later PUTs need `If-Match: "<rev>"`: missing -> 428, stale -> 412 |
 | POST | `/api/v1/projects/{id}/uploads` | `{filename, content_type, size_bytes}` -> `{source, upload}` (shapes below). Types: `video/mp4`, `video/quicktime`, `video/webm`, `video/x-matroska`; max `MAX_UPLOAD_BYTES` (2 GiB) -> else 422 / 413 |
 | PUT | `/api/v1/projects/{id}/sources/{sid}/content` | local storage only: raw body, streamed to disk, capped at declared size |
-| POST | `/api/v1/projects/{id}/sources/{sid}/complete` | multipart: body `{"parts": [{"partNumber", "etag"}]}`; single: no body. Finalizes multipart, HEADs the object, stores the real size, marks `uploaded`. Idempotent |
+| POST | `/api/v1/projects/{id}/sources/{sid}/complete` | multipart: body `{"parts": [{"partNumber", "etag"}]}`; single: no body. Finalizes multipart, HEADs the object, stores the real size, marks `uploaded` and enqueues a `proxy` job (`PROXY_ON_UPLOAD`). Idempotent (no second job) |
 | POST | `/api/v1/projects/{id}/sources/{sid}/abort` | cancels a pending upload (aborts multipart, deletes bytes) -> status `aborted`. 409 if already uploaded |
 | GET | `/api/v1/projects/{id}/sources/{sid}/url` | `{url, expires_in}`: R2 presigned GET (1 h) or the local content URL (`expires_in: null`). 404 until uploaded |
 | GET | `/api/v1/projects/{id}/sources/{sid}/content` | local storage only: serves the video (Range supported) |
-| POST | `/api/v1/projects/{id}/jobs` | `{kind}`: `proxy`, `transcribe`, `plan` or `render` -> 202, status `queued` |
-| GET | `/api/v1/projects/{id}/jobs/{jid}` | job status |
+| GET | `/api/v1/projects/{id}/sources/{sid}` | source + metadata (`width`, `height` upright, `duration_ms`, `fps`, `video_codec`, `audio_codec`), `urls: {original, proxy, audio, sprite, sprite_index, peaks}` (each `{url, expires_in}` or null) and `proxy_job` (latest, same shape as a job) |
+| GET | `/api/v1/projects/{id}/sources/{sid}/files/{artifact}` | local storage only: serves `proxy-720p.mp4`, `audio-16k.wav`, `sprite.jpg`, `sprite.json`, `peaks.json` |
+| POST | `/api/v1/projects/{id}/jobs` | `{kind, source_id?}`: `proxy` (needs `source_id`), `transcribe`, `plan` or `render` -> 202, status `queued` |
+| GET | `/api/v1/projects/{id}/jobs/{jid}` | `{id, kind, source_id, status, progress (0-100), error, result, started_at, finished_at, ...}` |
 
 Interactive docs: `http://localhost:8000/docs`. Every error, including validation errors and
 404s for unknown routes, uses `{"error": {"code", "message", "details"?}}`. Auth errors are 401
@@ -111,9 +127,22 @@ Upload flow. `POST .../uploads` returns `upload` in one of two shapes:
   (parallel is fine, retry a failed part), read each response's `ETag` header (the bucket CORS
   must expose it), then `POST .../complete` with `{"parts": [{"partNumber", "etag"}]}`.
 
-Then `GET .../sources/{sid}/url` gives the playback URL. Object keys:
-`projects/{pid}/sources/{sid}/original.{ext}`, proxy `.../sources/{sid}/proxy-720p.mp4`,
-renders `projects/{pid}/renders/{job_id}.mp4`. Presigned upload URLs live 3 h, GET URLs 1 h.
+Then `GET .../sources/{sid}/url` gives the playback URL of the original, and
+`GET .../sources/{sid}` the proxy job's progress and, once `status` is `ready`, the artifact
+URLs. Object keys: `projects/{pid}/sources/{sid}/original.{ext}`; next to it the proxy job
+writes `proxy-720p.mp4`, `audio-16k.wav`, `sprite.jpg`, `sprite.json`, `peaks.json`; renders
+go to `projects/{pid}/renders/{job_id}.mp4`.
+
+Proxy pipeline (`worker/proxy.py`, progress in brackets): copy the original to a temp dir under
+`WORK_DIR` [10] -> `probe` [20] -> `make_proxy`: short side 720 px (never upscaled, even dims),
+H.264 High CRF 23 yuv420p, AAC 128k, `+faststart`, auto-rotated, works for HEVC/.mov [60] ->
+`thumbnail_sprite` from the proxy, one 160 px thumb per second (at most 100), 10 per row, index
+`{interval_s, width, height, columns, rows, count, frames: [{t, x, y}]}` [70] -> if there is
+audio: `extract_audio` 16 kHz mono s16 WAV [80], `waveform_peaks` 50/s scaled to the loudest
+(`{peaks_per_second, duration_ms, count, peaks}`) and `loudness` (integrated LUFS in
+`result.loudness_lufs`) [88] -> upload artifacts [97] -> Source `ready` with metadata and keys
+[100]. Any failure sets the job `failed` with a readable `error` (e.g. `ffprobe failed: ...`;
+unexpected errors as `Internal error (TypeName)`) and the source `failed`; the original is kept. Presigned upload URLs live 3 h, GET URLs 1 h.
 boto3 network calls run in a worker thread; presigning is local.
 
 ## 5. The edit plan contract
@@ -138,13 +167,12 @@ boto3 network calls run in a worker thread; presigning is local.
 | Table | Key columns |
 |---|---|
 | `projects` | id (uuid), title, owner_id (Supabase user id, nullable, indexed), created_at, updated_at |
-| `sources` | id, project_id (FK, cascade), filename, content_type, size_bytes, storage_key (unique), status `pending`/`uploaded`/`aborted`, upload_id (multipart in progress), width/height/duration_ms (filled by a probe step later) |
+| `sources` | id, project_id (FK, cascade), filename, content_type, size_bytes, storage_key (unique), status `pending`/`uploaded`/`processing`/`ready`/`failed`/`aborted`, upload_id (multipart in progress), width/height (upright)/duration_ms/fps/video_codec/audio_codec and proxy_key/audio_key/sprite_key/sprite_index_key/peaks_key (filled by the proxy job) |
 | `edit_plans` | project_id (PK + FK, one plan per project), schema_version, revision, plan (JSONB on Postgres, JSON on SQLite) |
-| `jobs` | id, project_id (FK), kind `proxy`/`transcribe`/`plan`/`render`, status `queued`/`running`/`succeeded`/`failed`, error, result (JSON) |
+| `jobs` | id, project_id (FK), source_id (FK, set null), kind `proxy`/`transcribe`/`plan`/`render`, status `queued`/`running`/`succeeded`/`failed`, progress 0-100, error, result (JSON), started_at, finished_at |
 
-`proxy` jobs (worker comes later): phone videos are often HEVC in a `.mov`, which Chrome often
-cannot play, so after upload we make a 720p H.264 MP4 proxy for the editor. Renders use the
-original.
+`proxy` jobs: phone videos are often HEVC in a `.mov`, which Chrome often cannot play, so after
+upload we make a 720p H.264 MP4 proxy for the editor. Renders use the original.
 
 Schema changes go through Alembic: `uv run alembic revision --autogenerate -m "..."`, review
 the file, `uv run alembic upgrade head`. `uv run alembic check` fails if models and migrations
@@ -175,7 +203,12 @@ All optional; see `backend/.env.example` for the full annotated list.
 | `SUPABASE_URL` | unset | issuer check + default JWKS URL |
 | `SUPABASE_JWT_SECRET` | unset | legacy HS256 secret (else JWKS is used) |
 | `SUPABASE_JWKS_URL`, `SUPABASE_JWT_AUDIENCE` | from URL, `authenticated` | |
-| `JOB_QUEUE_BACKEND`, `REDIS_URL` | `inprocess`, `redis://localhost:6379/0` | for arq later |
+| `JOB_QUEUE_BACKEND` | `auto` | `auto` = arq if `REDIS_URL` is set, else in-process; or force `inprocess` / `arq` |
+| `REDIS_URL` | unset | e.g. `redis://localhost:6379/0`; then run the arq worker |
+| `WORKER_CONCURRENCY`, `JOB_TIMEOUT_SECONDS` | `2`, `3600` | jobs at once per process; per-job / per-ffmpeg-call limit |
+| `PROXY_ON_UPLOAD` | `true` | enqueue a `proxy` job when an upload completes |
+| `FFMPEG_PATH`, `FFPROBE_PATH` | `ffmpeg`, `ffprobe` | binary names on PATH or full paths |
+| `WORK_DIR` | system temp | scratch dir for media jobs |
 | `OPENAI_API_KEY`, `OPENAI_MODEL_DEFAULT` | unset | AI agents later (OpenAI only, via LangChain + LangGraph) |
 | `LANGSMITH_API_KEY`, `LANGSMITH_TRACING` | unset, `false` | optional agent tracing |
 | `DEEPGRAM_API_KEY` | unset | transcription later |
@@ -195,9 +228,14 @@ uv run alembic upgrade head
 uv run python -m scripts.check_db        # with cloud keys in .env
 uv run python -m scripts.check_storage   # with R2 keys in .env
 uv run uvicorn app.main:app --reload --port 8000
-uv run pytest
+uv run arq app.worker.main.WorkerSettings  # only when REDIS_URL is set
+uv run pytest                              # -m unit | integration | ffmpeg
 uv run ruff check . && uv run ruff format --check .
 ```
+
+Without Redis, jobs run inside the API process (no worker to start). With `REDIS_URL`, the API
+only enqueues and the arq worker (same `.env`) runs them; both must see the same database and
+storage. Tests marked `ffmpeg` generate tiny clips with ffmpeg and are skipped if it is missing.
 
 Optional Postgres + Redis: `docker compose up -d` in `backend/`, then set
 `DATABASE_URL=postgresql+asyncpg://shortcraft:shortcraft@localhost:5432/shortcraft`.
@@ -206,23 +244,20 @@ Optional Postgres + Redis: `docker compose up -d` in `backend/`, then set
 
 Stubbed:
 
-- **Job queue**: `InProcessJobQueue` only logs. Jobs are created as `queued` and never run
-  (this includes `proxy`).
+- **Jobs other than `proxy`** (`transcribe`, `plan`, `render`) have no handler yet and stay
+  `queued`. No progress stream yet: clients poll `GET .../jobs/{id}` or `GET .../sources/{sid}`.
 - **Auth is optional**: `get_current_user` verifies `Authorization: Bearer <supabase jwt>`
   (HS256 legacy secret, or RS256/ES256 via JWKS; checks `aud`, `iss`, `exp`, `sub`). New
   projects get `owner_id` from the token. Nothing is scoped by owner yet, and anonymous calls
   work while `AUTH_REQUIRED=false`. A token that is sent but invalid or expired is always 401.
-- **Source metadata** (width/height/duration) is never filled in yet.
 
 Next steps, roughly in order:
 
 1. **Auth enforcement**: send the Supabase token from the editor, check/filter projects by
    `owner_id` in services, then set `AUTH_REQUIRED=true`.
-2. **arq worker**: `ArqJobQueue` (enqueue by job id) + a `worker/` entrypoint that loads the
-   job, sets `running`, does the work, writes `result`/`error`, sets the final status. Add a
-   job progress/events endpoint (SSE) for the "agents working" UI.
-3. **Proxy job**: ffmpeg 720p H.264 proxy after upload complete, served by `.../url`; probe
-   width/height/duration with ffprobe at the same time.
+2. **Job events**: an SSE endpoint for progress (the "agents working" UI), and retries with
+   backoff for transient storage errors.
+3. **Worker image**: a container with ffmpeg + the arq worker for deployment.
 4. **Bucket hygiene**: R2 lifecycle rule to abort incomplete multipart uploads after 1 day.
 5. **Transcription**: Deepgram job writes words into `sources[].words` of the plan.
 6. **Agents** (OpenAI via LangChain + LangGraph): Director + specialists (cut, caption, zoom, music, hook) in the `plan`

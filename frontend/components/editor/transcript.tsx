@@ -59,7 +59,7 @@ export function Transcript() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PanelHeader title="Transcript" description="Click a word to select it, Delete to cut. Right-click for more." />
+      <PanelHeader title="Transcript" description="Click a word, press Delete to cut it. Right-click for more." />
 
       {/* On tablets the Inspector is a separate tab, so word actions stay here. */}
       {selected && breakpoint === "tablet" && (

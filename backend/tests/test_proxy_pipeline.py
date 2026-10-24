@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
+import anyio
 import pytest
 from httpx import AsyncClient
 
@@ -38,7 +39,7 @@ async def _project(client: AsyncClient) -> str:
 
 
 async def _upload(client: AsyncClient, pid: str, path: Path, content_type: str) -> dict[str, Any]:
-    data = path.read_bytes()
+    data = await anyio.Path(path).read_bytes()
     created = await client.post(
         f"/api/v1/projects/{pid}/uploads",
         json={"filename": path.name, "content_type": content_type, "size_bytes": len(data)},
@@ -59,9 +60,9 @@ async def _upload(client: AsyncClient, pid: str, path: Path, content_type: str) 
 
 
 async def _wait_for_proxy(
-    client: AsyncClient, pid: str, sid: str, timeout: float = 90
+    client: AsyncClient, pid: str, sid: str, limit_s: float = 90
 ) -> dict[str, Any]:
-    async with asyncio.timeout(timeout):
+    async with asyncio.timeout(limit_s):
         while True:
             response = await client.get(f"/api/v1/projects/{pid}/sources/{sid}")
             assert response.status_code == 200
@@ -157,7 +158,9 @@ async def test_video_without_audio(media_client: AsyncClient, media_dir: Path) -
     assert detail["urls"]["peaks"] is None
 
 
-async def test_corrupt_upload_fails_with_message(media_client: AsyncClient, media_dir: Path) -> None:
+async def test_corrupt_upload_fails_with_message(
+    media_client: AsyncClient, media_dir: Path
+) -> None:
     pid = await _project(media_client)
     source = await _upload(media_client, pid, media_dir / "corrupt.mp4", "video/mp4")
     detail = await _wait_for_proxy(media_client, pid, source["id"])
@@ -185,9 +188,10 @@ async def test_manual_proxy_job_without_source_fails(media_client: AsyncClient) 
     assert created.status_code == 202
     job_id = created.json()["id"]
     async with asyncio.timeout(10):
-        while (job := (await media_client.get(f"/api/v1/projects/{pid}/jobs/{job_id}")).json())[
-            "status"
-        ] not in TERMINAL:
+        while True:
+            job = (await media_client.get(f"/api/v1/projects/{pid}/jobs/{job_id}")).json()
+            if job["status"] in TERMINAL:
+                break
             await asyncio.sleep(0.05)
     assert job["status"] == "failed"
     assert job["error"] == "A proxy job needs a source_id"
