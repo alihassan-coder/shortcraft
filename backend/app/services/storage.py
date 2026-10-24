@@ -2,7 +2,8 @@
 
 Key layout (see the helpers below):
     projects/{project_id}/sources/{source_id}/original.{ext}
-    projects/{project_id}/sources/{source_id}/proxy-720p.mp4
+    projects/{project_id}/sources/{source_id}/proxy-720p.mp4   (+ audio-16k.wav, sprite.jpg,
+                                                               sprite.json, peaks.json)
     projects/{project_id}/renders/{job_id}.mp4
 """
 
@@ -10,6 +11,7 @@ import functools
 import logging
 import math
 import re
+import shutil
 import uuid
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
@@ -46,8 +48,24 @@ def source_key(project_id: uuid.UUID, source_id: uuid.UUID, content_type: str) -
     return f"projects/{project_id}/sources/{source_id}/original.{ext}"
 
 
+# Files the proxy job writes next to the original: name -> content type.
+SOURCE_ARTIFACTS: dict[str, str] = {
+    "proxy-720p.mp4": "video/mp4",
+    "audio-16k.wav": "audio/wav",
+    "sprite.jpg": "image/jpeg",
+    "sprite.json": "application/json",
+    "peaks.json": "application/json",
+}
+
+
+def source_artifact_key(project_id: uuid.UUID, source_id: uuid.UUID, name: str) -> str:
+    if name not in SOURCE_ARTIFACTS:
+        raise ValueError(f"Unknown source artifact {name!r}")
+    return f"projects/{project_id}/sources/{source_id}/{name}"
+
+
 def proxy_key(project_id: uuid.UUID, source_id: uuid.UUID) -> str:
-    return f"projects/{project_id}/sources/{source_id}/proxy-720p.mp4"
+    return source_artifact_key(project_id, source_id, "proxy-720p.mp4")
 
 
 def render_key(project_id: uuid.UUID, job_id: uuid.UUID) -> str:
@@ -112,6 +130,14 @@ class StorageAdapter(Protocol):
     async def exists(self, key: str) -> bool: ...
 
     async def delete(self, key: str) -> None: ...
+
+    async def download_to(self, key: str, path: Path) -> None:
+        """Copy the object at `key` to the local file `path` (streamed, not held in memory)."""
+        ...
+
+    async def upload_from(self, path: Path, key: str, content_type: str) -> None:
+        """Store the local file `path` at `key`."""
+        ...
 
 
 # --- local disk --------------------------------------------------------------------------
@@ -182,6 +208,19 @@ class LocalStorage:
 
     async def delete(self, key: str) -> None:
         await anyio.Path(self.path_for(key)).unlink(missing_ok=True)
+
+    async def download_to(self, key: str, path: Path) -> None:
+        src = self.path_for(key)
+        if not await anyio.Path(src).is_file():
+            raise NotFoundError("Stored file not found")
+        await anyio.to_thread.run_sync(shutil.copyfile, src, path)
+
+    async def upload_from(self, path: Path, key: str, content_type: str) -> None:
+        dst = self.path_for(key)
+        await anyio.Path(dst.parent).mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_name(dst.name + ".part")
+        await anyio.to_thread.run_sync(shutil.copyfile, path, tmp)
+        await anyio.Path(tmp).replace(dst)
 
 
 # --- Cloudflare R2 (S3 API) --------------------------------------------------------------
@@ -351,6 +390,19 @@ class R2Storage:
 
     async def delete(self, key: str) -> None:
         await self._call(self.client.delete_object, Bucket=self.bucket, Key=key)
+
+    async def download_to(self, key: str, path: Path) -> None:
+        # boto3's managed transfer: ranged, parallel GETs straight to disk.
+        await self._call(self.client.download_file, Bucket=self.bucket, Key=key, Filename=str(path))
+
+    async def upload_from(self, path: Path, key: str, content_type: str) -> None:
+        await self._call(
+            self.client.upload_file,
+            Filename=str(path),
+            Bucket=self.bucket,
+            Key=key,
+            ExtraArgs={"ContentType": content_type},
+        )
 
 
 def build_storage(settings: Settings) -> StorageAdapter:

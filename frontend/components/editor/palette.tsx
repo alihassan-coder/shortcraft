@@ -124,18 +124,7 @@ export function CommandPalette() {
     >
       <CommandInput value={query} onValueChange={setQuery} placeholder="Search actions, or describe a change…" />
       <CommandList className="max-h-[min(420px,60vh)] p-1">
-        <CommandEmpty>No matching action.</CommandEmpty>
-        {ask && (
-          <CommandGroup heading="Agents" forceMount>
-            <CommandItem value={`ask ${ask}`} forceMount onSelect={() => run(() => askAgents(ask))} data-ask>
-              <Sparkles className="text-rec" />
-              <span className="truncate">
-                Ask the agents: <span className="text-ink">“{ask}”</span>
-              </span>
-              <CommandShortcut>Enter</CommandShortcut>
-            </CommandItem>
-          </CommandGroup>
-        )}
+        {!ask && <CommandEmpty>No matching action.</CommandEmpty>}
         {!ask && (
           <CommandGroup heading="Try asking">
             {PROMPT_SUGGESTIONS.slice(0, 3).map((s) => (
@@ -160,6 +149,16 @@ export function CommandPalette() {
             ))}
           </CommandGroup>
         ))}
+        {ask && (
+          <CommandGroup heading="Agents" forceMount>
+            <CommandItem value="__ask-agents" forceMount onSelect={() => run(() => askAgents(ask))} data-ask>
+              <Sparkles className="text-rec" />
+              <span className="truncate">
+                Ask the agents: <span className="text-ink">“{ask}”</span>
+              </span>
+            </CommandItem>
+          </CommandGroup>
+        )}
       </CommandList>
     </CommandDialog>
   );
