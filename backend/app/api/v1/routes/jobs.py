@@ -13,7 +13,9 @@ router = APIRouter(prefix="/projects/{project_id}/jobs", tags=["jobs"])
 async def create_job(
     project_id: uuid.UUID, data: JobCreate, session: SessionDep, queue: JobQueueDep
 ):
-    return await service.create_job(session, queue, project_id, data.kind)
+    return await service.create_job(
+        session, queue, project_id, data.kind, source_id=data.source_id
+    )
 
 
 @router.get("/{job_id}", response_model=JobRead)

@@ -14,8 +14,9 @@ import {
   type PanelSize,
 } from "react-resizable-panels";
 import { ChevronDown, ChevronUp, PanelLeftClose, PanelRightClose, PanelRightOpen } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 import {
+  LAYOUT_VERSION,
   SIZES,
   collapsePanel,
   layoutStorage,
@@ -25,13 +26,14 @@ import {
   type PanelKey,
 } from "@/lib/editor/layout";
 import { cn } from "@/lib/utils";
-import { ToolRail, TopBar } from "./chrome";
-import { PanelHeaderAction } from "./controls";
-import { ToolPanel } from "./panels";
+import { AssetPanel, AssetRail } from "./assets";
+import { EditorDialogs, TopBar } from "./chrome";
+import { IconButton, PanelHeaderAction } from "./controls";
+import { Inspector } from "./inspector";
+import { CommandPalette } from "./palette";
 import { Preview } from "./preview";
 import { PromptBar } from "./prompt-bar";
 import { Timeline } from "./timeline";
-import { Transcript } from "./transcript";
 
 /* ---------- Building blocks ---------- */
 
@@ -43,7 +45,7 @@ function usePersistentGroup(
   orientation: "horizontal" | "vertical",
   defaults: (groupPx: number) => Record<string, number>,
 ) {
-  const saved = useDefaultLayout({ id: `shortcraft:editor:${id}`, storage: layoutStorage });
+  const saved = useDefaultLayout({ id: `shortcraft:editor:${LAYOUT_VERSION}:${id}`, storage: layoutStorage });
   const groupRef = useGroupRef();
   const elementRef = useRef<HTMLDivElement>(null);
   const reset = () => resetGroup(groupRef.current, elementRef.current, orientation, defaults);
@@ -102,33 +104,13 @@ function Handle({ onReset, className }: { onReset: () => void; className?: strin
   );
 }
 
-function IconToggle({ label, shortcut, onClick, children }: { label: string; shortcut?: string; onClick: () => void; children: ReactNode }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          onClick={onClick}
-          aria-label={label}
-          className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-surface hover:text-ink focus-visible:ring-2 focus-visible:ring-rec/40 focus-visible:outline-none"
-        >
-          {children}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {label}
-        {shortcut && <kbd className="ml-1.5 font-mono opacity-60">{shortcut}</kbd>}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
 /** A collapsible panel that registers its handle and reports collapse state to the layout store. */
 function TrackedPanel({
   name,
   collapsedPx = 0,
   minPx,
   ...props
-}: Omit<PanelProps, "panelRef" | "onResize"> & { name: PanelKey | "side"; collapsedPx?: number; minPx: number }) {
+}: Omit<PanelProps, "panelRef" | "onResize"> & { name: PanelKey; collapsedPx?: number; minPx: number }) {
   const ref = usePanelRef();
   const setCollapsed = useLayoutStore((s) => s.setCollapsed);
   useEffect(() => registerPanel(name, ref), [name, ref]);
@@ -149,33 +131,29 @@ function TrackedPanel({
 
 function Center() {
   return (
-    <main className="flex h-full min-h-0 flex-col bg-surface/50 px-5 pt-5 pb-4 xl:px-8 xl:pt-6 xl:pb-5">
+    <main className="flex h-full min-h-0 flex-col bg-surface px-4 pt-4 pb-3 xl:px-6 xl:pt-5">
       <div className="min-h-0 flex-1">
         <Preview />
       </div>
-      <div className="mx-auto mt-4 w-full max-w-[720px]">
+      <div className="mx-auto mt-2 w-full max-w-[560px]">
         <PromptBar />
       </div>
     </main>
   );
 }
 
-function ToolsSection({ action }: { action?: ReactNode }) {
+function AssetsSection({ action }: { action?: ReactNode }) {
   return (
     <PanelHeaderAction.Provider value={action}>
-      <div className="h-full overflow-y-auto">
-        <ToolPanel />
-      </div>
+      <AssetPanel />
     </PanelHeaderAction.Provider>
   );
 }
 
-function TranscriptSection({ action }: { action?: ReactNode }) {
+function InspectorSection({ action }: { action?: ReactNode }) {
   return (
     <PanelHeaderAction.Provider value={action}>
-      <div className="h-full min-h-0">
-        <Transcript />
-      </div>
+      <Inspector />
     </PanelHeaderAction.Provider>
   );
 }
@@ -190,7 +168,7 @@ function TimelineSection({ collapsible = true }: { collapsible?: boolean }) {
           onClick={() => togglePanel("timeline")}
           aria-expanded={!collapsed}
           aria-label={collapsed ? "Show timeline" : "Hide timeline"}
-          className="group flex h-8 shrink-0 items-center gap-2 px-5 text-left text-xs font-medium text-ink-2 hover:bg-surface/70 focus-visible:bg-surface focus-visible:outline-none"
+          className="group flex h-8 shrink-0 items-center gap-2 border-b px-4 text-left text-xs font-medium text-ink-2 hover:bg-surface/70 focus-visible:bg-surface focus-visible:outline-none"
         >
           Timeline
           <kbd className="font-mono text-[10px] font-normal text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">\</kbd>
@@ -208,65 +186,63 @@ function TimelineSection({ collapsible = true }: { collapsible?: boolean }) {
   );
 }
 
-/* ---------- ≥1280px ---------- */
+/* ---------- ≥1024px: Assets | Player | Inspector over Timeline ---------- */
 
-function DesktopLayout() {
+// 1024–1279px uses the same structure with narrower side panels, so nothing
+// moves between breakpoints; the Inspector folds to a 40px strip when hidden.
+function ColumnsLayout({ size }: { size: "desktop" | "laptop" }) {
   const collapsed = useLayoutStore((s) => s.collapsed);
-  const rows = usePersistentGroup("desktop-rows", "vertical", () => ({ timeline: SIZES.timeline.default }));
-  const cols = usePersistentGroup("desktop-cols", "horizontal", () => ({ tools: SIZES.tools.default, transcript: SIZES.transcript.default }));
+  const sz = SIZES[size];
+  const rows = usePersistentGroup(`${size}-rows`, "vertical", () => ({ timeline: SIZES.timeline.default }));
+  const cols = usePersistentGroup(`${size}-cols`, "horizontal", () => ({ assets: sz.assets.default, inspector: sz.inspector.default }));
 
   return (
     <Group className="min-h-0 flex-1" {...rows.group}>
       <Panel id="main" minSize={SIZES.main.min} style={PANEL_STYLE}>
         <div className="flex h-full min-h-0">
-          <aside className={cn("w-20 shrink-0 bg-surface", !collapsed.tools && "border-r")}>
-            <ToolRail />
+          <aside className="w-16 shrink-0 border-r bg-surface">
+            <AssetRail />
           </aside>
           <Group className="min-w-0 flex-1" {...cols.group}>
-            <TrackedPanel
-              name="tools"
-              minPx={SIZES.tools.min}
-              maxSize={SIZES.tools.max}
-              defaultSize={SIZES.tools.default}
-            >
-              <div className="h-full" inert={collapsed.tools}>
-                <ToolsSection
+            <TrackedPanel name="assets" minPx={sz.assets.min} maxSize={sz.assets.max} defaultSize={sz.assets.default}>
+              <div className="h-full bg-white" inert={collapsed.assets}>
+                <AssetsSection
                   action={
-                    <IconToggle label="Hide tool panel" shortcut="[" onClick={() => collapsePanel("tools")}>
+                    <IconButton label="Hide assets" shortcut="[" onClick={() => collapsePanel("assets")}>
                       <PanelLeftClose className="size-4" />
-                    </IconToggle>
+                    </IconButton>
                   }
                 />
               </div>
             </TrackedPanel>
-            <Handle onReset={cols.reset} />
+            <Handle onReset={cols.reset} className={cn(collapsed.assets && "hidden")} />
             <Panel id="center" minSize={SIZES.center.min} style={PANEL_STYLE}>
               <Center />
             </Panel>
             <Handle onReset={cols.reset} />
             <TrackedPanel
-              name="transcript"
-              collapsedPx={SIZES.transcript.collapsed}
-              minPx={SIZES.transcript.min}
-              maxSize={SIZES.transcript.max}
-              defaultSize={SIZES.transcript.default}
+              name="inspector"
+              collapsedPx={sz.inspector.collapsed}
+              minPx={sz.inspector.min}
+              maxSize={sz.inspector.max}
+              defaultSize={sz.inspector.default}
             >
-              {collapsed.transcript ? (
+              {collapsed.inspector ? (
                 <button
-                  onClick={() => togglePanel("transcript")}
-                  aria-label="Show transcript"
-                  title="Show transcript ( ] )"
-                  className="flex h-full w-full flex-col items-center gap-3 bg-white pt-4 text-xs font-medium text-ink-2 hover:bg-surface/70 hover:text-ink focus-visible:bg-surface focus-visible:outline-none"
+                  onClick={() => togglePanel("inspector")}
+                  aria-label="Show inspector"
+                  title="Show inspector ( ] )"
+                  className="flex h-full w-full flex-col items-center gap-3 bg-white pt-3.5 text-xs font-medium text-ink-2 hover:bg-surface/70 hover:text-ink focus-visible:bg-surface focus-visible:outline-none"
                 >
                   <PanelRightOpen className="size-4" />
-                  <span className="[writing-mode:vertical-rl]">Transcript</span>
+                  <span className="[writing-mode:vertical-rl]">Inspector</span>
                 </button>
               ) : (
-                <TranscriptSection
+                <InspectorSection
                   action={
-                    <IconToggle label="Hide transcript" shortcut="]" onClick={() => collapsePanel("transcript")}>
+                    <IconButton label="Hide inspector" shortcut="]" onClick={() => collapsePanel("inspector")}>
                       <PanelRightClose className="size-4" />
-                    </IconToggle>
+                    </IconButton>
                   }
                 />
               )}
@@ -288,87 +264,12 @@ function DesktopLayout() {
   );
 }
 
-/* ---------- 1024–1279px ---------- */
-
-function SideSwitch() {
-  const { sideTab, setSideTab } = useLayoutStore();
-  return (
-    <div className="flex items-center gap-2 border-b px-3 py-2.5">
-      <div className="inline-flex flex-1 rounded-full bg-surface p-0.5 text-[13px]" role="tablist" aria-label="Left panel">
-        {(
-          [
-            ["tools", "Tools", "["],
-            ["transcript", "Transcript", "]"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            role="tab"
-            aria-selected={sideTab === id}
-            onClick={() => setSideTab(id)}
-            className={cn(
-              "h-8 flex-1 rounded-full",
-              sideTab === id ? "bg-white font-medium text-ink shadow-sm" : "text-muted-foreground hover:text-ink",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <IconToggle label="Hide panel" onClick={() => collapsePanel("side")}>
-        <PanelLeftClose className="size-4" />
-      </IconToggle>
-    </div>
-  );
-}
-
-function LaptopLayout() {
-  const collapsed = useLayoutStore((s) => s.collapsed.side);
-  const sideTab = useLayoutStore((s) => s.sideTab);
-  const rows = usePersistentGroup("laptop-rows", "vertical", () => ({ timeline: SIZES.timeline.default }));
-  const cols = usePersistentGroup("laptop-cols", "horizontal", () => ({ side: SIZES.side.default }));
-
-  return (
-    <Group className="min-h-0 flex-1" {...rows.group}>
-      <Panel id="main" minSize={SIZES.main.min} style={PANEL_STYLE}>
-        <div className="flex h-full min-h-0">
-          <aside className={cn("w-20 shrink-0 bg-surface", !collapsed && "border-r")}>
-            <ToolRail />
-          </aside>
-          <Group className="min-w-0 flex-1" {...cols.group}>
-            <TrackedPanel name="side" minPx={SIZES.side.min} maxSize={SIZES.side.max} defaultSize={SIZES.side.default}>
-              <div className="flex h-full min-h-0 flex-col" inert={collapsed}>
-                <SideSwitch />
-                <div className="min-h-0 flex-1">{sideTab === "tools" ? <ToolsSection /> : <TranscriptSection />}</div>
-              </div>
-            </TrackedPanel>
-            <Handle onReset={cols.reset} />
-            <Panel id="center" minSize={SIZES.center.min} style={PANEL_STYLE}>
-              <Center />
-            </Panel>
-          </Group>
-        </div>
-      </Panel>
-      <Handle onReset={rows.reset} />
-      <TrackedPanel
-        name="timeline"
-        collapsedPx={SIZES.timeline.collapsed}
-        minPx={SIZES.timeline.min}
-        maxSize={SIZES.timeline.max}
-        defaultSize={SIZES.timeline.default}
-      >
-        <TimelineSection />
-      </TrackedPanel>
-    </Group>
-  );
-}
-
 /* ---------- 768–1023px ---------- */
 
-const TABLET_TABS: { id: PanelKey; label: string; key: string }[] = [
-  { id: "tools", label: "Tools", key: "[" },
-  { id: "transcript", label: "Transcript", key: "]" },
-  { id: "timeline", label: "Timeline", key: "\\" },
+const TABLET_TABS: { id: PanelKey; label: string }[] = [
+  { id: "assets", label: "Assets" },
+  { id: "inspector", label: "Inspector" },
+  { id: "timeline", label: "Timeline" },
 ];
 
 function TabletLayout() {
@@ -383,7 +284,7 @@ function TabletLayout() {
       <Handle onReset={rows.reset} />
       <Panel id="sections" minSize={220} style={PANEL_STYLE}>
         <div className="flex h-full min-h-0 flex-col bg-white">
-          <div className="flex shrink-0 gap-1 border-b px-3 py-2" role="tablist" aria-label="Editor sections">
+          <div className="flex shrink-0 gap-0.5 border-b px-2 py-1.5" role="tablist" aria-label="Editor sections">
             {TABLET_TABS.map((t) => (
               <button
                 key={t.id}
@@ -391,8 +292,8 @@ function TabletLayout() {
                 aria-selected={tabletTab === t.id}
                 onClick={() => setTabletTab(t.id)}
                 className={cn(
-                  "h-9 rounded-full px-4 text-sm",
-                  tabletTab === t.id ? "bg-ink font-medium text-white" : "text-ink-2 hover:bg-surface hover:text-ink",
+                  "h-8 rounded-[10px] px-3 text-[13px]",
+                  tabletTab === t.id ? "bg-surface font-medium text-ink" : "text-ink-2 hover:bg-surface/70 hover:text-ink",
                 )}
               >
                 {t.label}
@@ -400,17 +301,17 @@ function TabletLayout() {
             ))}
           </div>
           <div className="min-h-0 flex-1">
-            {tabletTab === "tools" && (
+            {tabletTab === "assets" && (
               <div className="flex h-full min-h-0 flex-col">
                 <div className="shrink-0 border-b bg-surface">
-                  <ToolRail orientation="horizontal" />
+                  <AssetRail orientation="horizontal" />
                 </div>
                 <div className="min-h-0 flex-1">
-                  <ToolsSection />
+                  <AssetsSection />
                 </div>
               </div>
             )}
-            {tabletTab === "transcript" && <TranscriptSection />}
+            {tabletTab === "inspector" && <InspectorSection />}
             {tabletTab === "timeline" && <TimelineSection collapsible={false} />}
           </div>
         </div>
@@ -425,9 +326,10 @@ export function Workspace({ breakpoint }: { breakpoint: "desktop" | "laptop" | "
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-white">
       <TopBar />
-      {breakpoint === "desktop" && <DesktopLayout />}
-      {breakpoint === "laptop" && <LaptopLayout />}
-      {breakpoint === "tablet" && <TabletLayout />}
+      {breakpoint === "tablet" ? <TabletLayout /> : <ColumnsLayout key={breakpoint} size={breakpoint} />}
+      <CommandPalette />
+      <EditorDialogs />
+      <Toaster theme="light" position="bottom-center" offset={{ bottom: 24 }} toastOptions={{ classNames: { toast: "!rounded-[12px] !text-[13px]" } }} />
     </div>
   );
 }
