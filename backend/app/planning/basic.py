@@ -43,10 +43,10 @@ STOPWORDS = frozenset(
     under until up very was wasn't we we'd we'll we're we've were weren't what what's when
     when's where where's which while who who's whom why why's will with won't would wouldn't
     yeah you you'd you'll you're you've your yours yourself yourselves gonna wanna gotta okay
-    """.split()
+    """.split()  # noqa: SIM905
 )
 SENTENCE_END = (".", "?", "!", "…")
-ABANDONED_END = ("—", "–", "-", "...", "…")
+ABANDONED_END = ("—", "–", "-", "...", "…")  # noqa: RUF001
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +179,8 @@ def detect_retakes(
                 break
             if not tokens[a] or tokens[b] != tokens[a]:
                 continue
+            if a > 0 and tokens[a - 1] == tokens[b - 1]:
+                continue  # the tail of a longer match that starts earlier
             length = 0
             while (
                 a + length < b
@@ -263,16 +265,34 @@ def sentence_starts(
     return starts
 
 
-def first_sentence(words: Sequence[TranscriptWord], max_words: int, skip: Sequence[Range] = ()):
+HOOK_SKIP_LEADING = frozenset({"so", "and", "okay", "ok", "well", "alright", "right"})
+_TRAILING_PUNCT = ",;:.—–-"  # noqa: RUF001
+
+
+def first_sentence(
+    words: Sequence[TranscriptWord], max_words: int, skip: Sequence[Range] = ()
+) -> str:
+    """Hook text: the first spoken sentence (fillers and retakes skipped), without a leading
+    "So"/"And", at most `max_words` words. A longer sentence is cut at its last comma inside
+    the limit when there is one."""
     out: list[str] = []
     for w in words:
         if w.filler or _inside(w, skip):
             continue
+        if not out and normalize_token(w.text) in HOOK_SKIP_LEADING:
+            continue
         out.append(w.text.strip())
-        if _ends_sentence(w.text) or len(out) >= max_words:
+        if _ends_sentence(w.text) or len(out) > max_words:
             break
-    text = " ".join(out[:max_words]).strip()
-    return text.rstrip(",;:—–-").rstrip(".") if text else ""
+    if not out:
+        return ""
+    if len(out) > max_words:  # too long: trim, at a comma when possible
+        out = out[:max_words]
+        commas = [i for i, t in enumerate(out[:-1]) if t.endswith((",", ";", ":"))]
+        if commas:
+            out = out[: commas[-1] + 1]
+    text = " ".join(out).rstrip(_TRAILING_PUNCT)
+    return text[:1].upper() + text[1:]
 
 
 # --- the plan ----------------------------------------------------------------------------
@@ -281,7 +301,15 @@ DEFAULT_CLIP_LOOK: dict[str, Any] = {
     "speed": 1,
     "volume": 1,
     "muted": False,
-    "frame": {"fit": "fill", "scale": 1, "x": 0, "y": 0, "rotate": 0, "flipH": False, "flipV": False},
+    "frame": {
+        "fit": "fill",
+        "scale": 1,
+        "x": 0,
+        "y": 0,
+        "rotate": 0,
+        "flipH": False,
+        "flipV": False,
+    },
     "crop": {"left": 0, "top": 0, "right": 0, "bottom": 0},
     "color": {"preset": "none", "brightness": 0, "contrast": 0, "saturation": 0, "temperature": 0},
 }

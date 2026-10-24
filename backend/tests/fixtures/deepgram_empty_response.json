@@ -1,0 +1,16 @@
+{
+  "metadata": {
+    "transaction_key": "deprecated",
+    "request_id": "0b9e7c55-2d1f-4a8e-8c3b-5e6f7a8b9c0d",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "created": "2026-10-24T12:00:00.000Z",
+    "duration": 2.0,
+    "channels": 1,
+    "models": ["2187e11a-3532-4498-b076-81fa530bdd49"]
+  },
+  "results": {
+    "channels": [
+      {"alternatives": [{"transcript": "", "confidence": 0.0, "words": []}]}
+    ]
+  }
+}

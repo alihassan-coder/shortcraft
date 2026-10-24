@@ -2,7 +2,6 @@ import {
   AbsoluteFill,
   Html5Audio,
   Html5Video,
-  Img,
   Sequence,
   interpolate,
   spring,
@@ -11,8 +10,11 @@ import {
 } from "remotion";
 import { CAPTION_PRESETS, captionTextStyle, type CaptionPreset } from "@/lib/caption-presets";
 import { trackById } from "@/lib/edit-plan/music-library";
-import type { Clip, EditPlan, TextOverlay } from "@/lib/edit-plan/schema";
-import { msToFrames, resolveTimeline, type CaptionLine, type TimedWord } from "@/lib/edit-plan/timeline";
+import type { Clip, EditPlan } from "@/lib/edit-plan/schema";
+import { sfxById } from "@/lib/edit-plan/sfx-library";
+import { msToFrames, resolveTimeline, type CaptionLine, type SfxCue, type TimedWord } from "@/lib/edit-plan/timeline";
+import { animate, transitionStyle } from "./animate";
+import { ItemLayer } from "./items";
 
 // Renders an EditPlan. Used by the in-browser Player now and by the render
 // worker on export later, so keep it free of editor/Next.js code.
@@ -34,80 +36,71 @@ export function ShortVideo({ plan, original = false }: ShortVideoProps) {
   const preset = CAPTION_PRESETS.find((p) => p.id === plan.captions.presetId) ?? CAPTION_PRESETS[0];
   const zoom = tl.zoomAt(t);
   const track = original ? null : trackById(plan.music.trackId);
+  const spans = new Map(tl.clipSpans.map((s) => [s.clipId, s]));
+  const bar = plan.progressBar;
 
   return (
     <AbsoluteFill style={{ backgroundColor: plan.canvas.background.type === "color" ? plan.canvas.background.color : "#000" }}>
-      <AbsoluteFill
-        style={{
-          transform: zoom ? `scale(${zoom.scale})` : undefined,
-          transformOrigin: zoom ? `${zoom.focusX * 100}% ${zoom.focusY * 100}%` : undefined,
-        }}
-      >
-        {tl.pieces.map((piece) => {
-          const source = sources.get(piece.sourceId);
-          if (!source) return null;
-          const clip = original ? undefined : clips.get(piece.clipId);
-          return (
-            <Sequence
-              key={piece.key}
-              from={msToFrames(piece.outStart, fps)}
-              durationInFrames={Math.max(1, msToFrames(piece.outEnd - piece.outStart, fps))}
-              premountFor={fps}
-            >
-              <ClipVideo
-                src={source.src}
-                trimBefore={msToFrames(piece.srcStart, fps)}
-                clip={clip}
-                blurBackground={plan.canvas.background.type === "blur"}
-              />
-            </Sequence>
-          );
-        })}
+      <AbsoluteFill style={transitionStyle(tl.transitions, t)}>
+        <AbsoluteFill
+          style={{
+            transform: zoom ? `scale(${zoom.scale})` : undefined,
+            transformOrigin: zoom ? `${zoom.focusX * 100}% ${zoom.focusY * 100}%` : undefined,
+          }}
+        >
+          {tl.pieces.map((piece) => {
+            const source = sources.get(piece.sourceId);
+            if (!source) return null;
+            const clip = original ? undefined : clips.get(piece.clipId);
+            return (
+              <Sequence
+                key={piece.key}
+                from={msToFrames(piece.outStart, fps)}
+                durationInFrames={Math.max(1, msToFrames(piece.outEnd - piece.outStart, fps))}
+                premountFor={fps}
+              >
+                <ClipVideo
+                  src={source.src}
+                  trimBefore={msToFrames(piece.srcStart, fps)}
+                  clip={clip}
+                  span={spans.get(piece.clipId)}
+                  t={t}
+                  blurBackground={plan.canvas.background.type === "blur"}
+                />
+              </Sequence>
+            );
+          })}
+        </AbsoluteFill>
       </AbsoluteFill>
 
       {!original && plan.captions.enabled && <Captions plan={plan} preset={preset} lines={tl.lines} t={t} frame={frame} fps={fps} />}
 
-      {!original &&
-        plan.overlays.texts
-          .filter((o) => t >= o.startMs && t < o.endMs)
-          .map((o) => <TextLayer key={o.id} overlay={o} t={t} />)}
-
-      {!original &&
-        plan.overlays.images
-          .filter((o) => t >= o.startMs && t < o.endMs)
-          .map((o) => (
-            <Img
-              key={o.id}
-              src={o.src}
-              style={{
-                position: "absolute",
-                left: `${o.x * 100}%`,
-                top: `${o.y * 100}%`,
-                width: `${o.width * 100}%`,
-                transform: "translate(-50%, -50%)",
-                opacity: o.opacity,
-              }}
-            />
-          ))}
+      {tl.itemsAt(t).map(({ item }) => (
+        <ItemLayer key={item.id} item={item} t={t} canvas={plan.canvas} />
+      ))}
 
       {!original && plan.hook.enabled && t < plan.hook.durationMs && (
         <Hook text={plan.hook.text} t={t} durationMs={plan.hook.durationMs} />
       )}
 
-      {!original && plan.overlays.progressBar.enabled && (
+      {!original && bar.enabled && (
         <div
           style={{
             position: "absolute",
             left: 0,
-            [plan.overlays.progressBar.position]: 0,
-            height: 14,
+            [bar.position]: 0,
+            height: bar.thickness,
             width: `${(t / Math.max(1, tl.durationMs)) * 100}%`,
-            background: plan.overlays.progressBar.color,
+            background: bar.color,
           }}
         />
       )}
 
       {track && <Html5Audio src={track.src} volume={(f) => musicVolume(plan, tl.words, (f / fps) * 1000, tl.durationMs)} />}
+
+      {tl.sfxCues.map((cue) => (
+        <SfxSequence key={cue.itemId} cue={cue} fps={fps} />
+      ))}
     </AbsoluteFill>
   );
 }
@@ -141,11 +134,15 @@ function ClipVideo({
   src,
   trimBefore,
   clip,
+  span,
+  t,
   blurBackground,
 }: {
   src: string;
   trimBefore: number;
   clip?: Clip;
+  span?: { outStart: number; outEnd: number };
+  t: number;
   blurBackground: boolean;
 }) {
   const f = clip?.frame;
@@ -159,8 +156,18 @@ function ClipVideo({
     pauseWhenBuffering: true,
   } as const;
 
+  // Clip in/out animation runs over the clip's whole span in output time.
+  const a = clip && span ? animate(clip.animation, t - span.outStart, span.outEnd - span.outStart) : null;
+  const look: React.CSSProperties | undefined =
+    clip && a
+      ? {
+          opacity: clip.frame.opacity * a.opacity,
+          transform: `translate(${a.dx * 100}%, ${a.dy * 100}%) scale(${a.scale})`,
+        }
+      : undefined;
+
   return (
-    <AbsoluteFill>
+    <AbsoluteFill style={look}>
       {blurBackground && f?.fit === "fit" && (
         <Html5Video
           {...common}
@@ -297,35 +304,6 @@ function CaptionWord({
   );
 }
 
-/* ---------- Text overlays ---------- */
-
-function TextLayer({ overlay: o, t }: { overlay: TextOverlay; t: number }) {
-  const preset = CAPTION_PRESETS.find((p) => p.id === o.presetId) ?? CAPTION_PRESETS[0];
-  const local = t - o.startMs;
-  const inP = o.animation === "none" ? 1 : interpolate(local, [0, 220], [0, 1], { extrapolateRight: "clamp" });
-  const outP = o.animation === "none" ? 1 : interpolate(t, [o.endMs - 200, o.endMs], [1, 0], { extrapolateLeft: "clamp" });
-  const p = Math.min(inP, outP);
-  const transform =
-    o.animation === "pop" ? `scale(${0.7 + 0.3 * p})` : o.animation === "slide" ? `translateY(${(1 - p) * 40}px)` : undefined;
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: `${o.x * 100}%`,
-        top: `${o.y * 100}%`,
-        transform: "translate(-50%, -50%)",
-        maxWidth: "90%",
-        textAlign: "center",
-        fontSize: o.size,
-        lineHeight: 1.1,
-        pointerEvents: "none",
-      }}
-    >
-      <span style={{ ...captionTextStyle(preset, false), display: "inline-block", opacity: p, transform }}>{o.text}</span>
-    </div>
-  );
-}
-
 /* ---------- Hook ---------- */
 
 function Hook({ text, t, durationMs }: { text: string; t: number; durationMs: number }) {
@@ -376,4 +354,26 @@ function musicVolume(plan: EditPlan, words: TimedWord[], t: number, totalMs: num
     duck = duckTo + (1 - duckTo) * Math.min(1, near / 150);
   }
   return Math.max(0, Math.min(1, volume * duck * fadeIn * fadeOut));
+}
+
+/* ---------- Sound effects ---------- */
+
+function SfxSequence({ cue, fps }: { cue: SfxCue; fps: number }) {
+  const sfx = sfxById(cue.sfxId);
+  // Library entries without a checked-in file are skipped instead of 404ing mid-playback.
+  if (!sfx?.available) return null;
+  const length = cue.endMs - cue.startMs;
+  return (
+    <Sequence from={msToFrames(cue.startMs, fps)} durationInFrames={Math.max(1, msToFrames(length, fps))}>
+      <Html5Audio
+        src={sfx.src}
+        volume={(f) => {
+          const t = (f / fps) * 1000;
+          const fadeIn = cue.fadeInMs ? Math.min(1, t / cue.fadeInMs) : 1;
+          const fadeOut = cue.fadeOutMs ? Math.min(1, Math.max(0, (length - t) / cue.fadeOutMs)) : 1;
+          return Math.max(0, Math.min(1, cue.volume * fadeIn * fadeOut));
+        }}
+      />
+    </Sequence>
+  );
 }

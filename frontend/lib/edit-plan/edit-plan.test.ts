@@ -3,6 +3,7 @@ import { applyEdit, applyEdits } from "./commands";
 import { DEMO_PLAN } from "./demo-plan";
 import { migrateV1toV2, parsePlan } from "./migrate";
 import { DEFAULT_CLIP_LOOK, EditPlanSchema, type EditPlan } from "./schema";
+import { EditPlanV2Schema } from "./schema-v2";
 import { resolveTimeline } from "./timeline";
 
 // A tiny plan with round numbers so expectations are easy to read.
@@ -130,14 +131,14 @@ describe("applyEdit — transcript, canvas, overlays", () => {
     expect(p.canvas.aspect).toBe("16:9");
   });
 
-  it("adds and edits text overlays", () => {
-    let p = applyEdit(plan(), { type: "addText", text: { text: "Hi" } });
-    const id = p.overlays.texts[0].id;
+  it("adds and edits text items", () => {
+    let p = applyEdit(plan(), { type: "addItem", trackKind: "text", item: { text: "Hi" } });
+    const id = p.tracks[0].items[0].id;
     p = applyEdits(p, [
-      { type: "updateText", textId: id, patch: { y: 0.8 } },
+      { type: "updateItem", itemId: id, patch: { transform: { y: 0.8 } } },
       { type: "setWordText", wordId: "a", text: "Hey" },
     ]);
-    expect(p.overlays.texts[0]).toMatchObject({ text: "Hi", y: 0.8 });
+    expect(p.tracks[0].items[0]).toMatchObject({ text: "Hi", transform: { y: 0.8 } });
     expect(resolveTimeline(p).words[0].display).toBe("Hey");
   });
 
@@ -145,7 +146,7 @@ describe("applyEdit — transcript, canvas, overlays", () => {
     const p = applyEdits(plan(), [
       { type: "splitAt", outMs: 2000 },
       { type: "addZoom", sourceId: "s", atMs: 100 },
-      { type: "addText" },
+      { type: "addItem", trackKind: "text" },
       { type: "setCanvas", canvas: { aspect: "4:5" } },
     ]);
     expect(EditPlanSchema.safeParse(p).success).toBe(true);
@@ -154,7 +155,7 @@ describe("applyEdit — transcript, canvas, overlays", () => {
 
 describe("migration", () => {
   it("parses the demo plan and rejects garbage", () => {
-    expect(parsePlan(DEMO_PLAN)?.version).toBe(2);
+    expect(parsePlan(DEMO_PLAN)?.version).toBe(3);
     expect(parsePlan({ nope: true })).toBeNull();
   });
 
@@ -176,6 +177,7 @@ describe("migration", () => {
     });
     expect(v2.clips).toHaveLength(1);
     expect(v2.clips[0]).toMatchObject({ inMs: 0, outMs: 5000 });
-    expect(EditPlanSchema.safeParse(v2).success).toBe(true);
+    expect(EditPlanV2Schema.safeParse(v2).success).toBe(true);
+    expect(parsePlan(v2)?.version).toBe(3);
   });
 });

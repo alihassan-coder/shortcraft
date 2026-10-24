@@ -267,3 +267,21 @@ def media_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
                 "-x265-params", "log-level=error", "-c:a", "aac",
                 str(root / "hevc.mov"))  # fmt: skip
     return root
+
+
+@pytest.fixture(scope="session")
+def gap_clip(media_dir: Path) -> Path:
+    """6 s portrait clip whose audio is 2 s tone, 1 s digital silence, 3 s tone."""
+    path = media_dir / "gap.mp4"
+    if not path.exists():
+        _ffmpeg(
+            "-f", "lavfi", "-i", "testsrc=size=320x568:rate=30:duration=6",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
+            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3",
+            "-filter_complex", "[2:a]atrim=duration=1[gap];[1:a][gap][3:a]concat=n=3:v=0:a=1[a]",
+            "-map", "0:v", "-map", "[a]", "-t", "6",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac",
+            str(path),
+        )  # fmt: skip
+    return path

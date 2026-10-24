@@ -18,7 +18,7 @@ _EDGE_PUNCT = re.compile(r"^[^\w]+|[^\w]+$")
 
 def normalize_token(text: str) -> str:
     """Lowercase, without leading/trailing punctuation ("Um," -> "um", "uh-huh." -> "uh-huh")."""
-    return _EDGE_PUNCT.sub("", text.strip().lower().replace("’", "'"))
+    return _EDGE_PUNCT.sub("", text.strip().lower().replace("’", "'"))  # noqa: RUF001
 
 
 def is_filler(text: str) -> bool:

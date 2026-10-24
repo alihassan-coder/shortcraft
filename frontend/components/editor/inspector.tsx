@@ -3,9 +3,13 @@
 import { useContext, useState } from "react";
 import { HexColorPicker } from "react-colorful";
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   Copy,
   FlipHorizontal2,
   FlipVertical2,
+  Italic,
   Scissors,
   SlidersHorizontal,
   Trash2,
@@ -16,9 +20,10 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CAPTION_PRESETS, captionTextStyle } from "@/lib/caption-presets";
 import type { EditCommand } from "@/lib/edit-plan/commands";
-import { ASPECT_SIZES, type Aspect, type Clip, type TextOverlay } from "@/lib/edit-plan/schema";
+import { ASPECT_SIZES, type AnimationType, type Aspect, type Clip, type TextItem, type TextStyle } from "@/lib/edit-plan/schema";
+import { FONT_FAMILIES, presetById, presetTextStyle } from "@/lib/edit-plan/text-styles";
 import { formatTime, isWordCut } from "@/lib/edit-plan/timeline";
-import { deleteClip, deleteSelection, duplicateClip, duplicateText, splitAtPlayhead } from "@/lib/editor/actions";
+import { deleteClip, deleteSelection, duplicateClip, duplicateText, splitAtPlayhead, textItems } from "@/lib/editor/actions";
 import { playerControls } from "@/lib/editor/player";
 import { dispatch, usePlanStore, useTimeline, useUiStore } from "@/lib/editor/store";
 import { cn } from "@/lib/utils";
@@ -49,7 +54,7 @@ export function Inspector() {
       body = <ClipInspector clip={plan.clips[i]} />;
     }
   } else if (selection?.kind === "text") {
-    const t = plan.overlays.texts.find((x) => x.id === selection.id);
+    const t = textItems(plan).find((x) => x.id === selection.id);
     if (t) {
       title = "Text";
       subtitle = `${formatTime(t.startMs, true)} – ${formatTime(t.endMs, true)}`;
@@ -245,17 +250,47 @@ function ResetLink({ onClick }: { onClick: () => void }) {
 
 /* ---------- Text ---------- */
 
-const ANIMATIONS: { value: TextOverlay["animation"]; label: string }[] = [
+const ANIMATIONS: { value: AnimationType; label: string }[] = [
   { value: "none", label: "None" },
   { value: "fade", label: "Fade" },
   { value: "pop", label: "Pop" },
-  { value: "slide", label: "Slide" },
+  { value: "slide-up", label: "Slide up" },
+  { value: "slide-down", label: "Slide down" },
+  { value: "slide-left", label: "Slide left" },
+  { value: "slide-right", label: "Slide right" },
+  { value: "typewriter", label: "Typewriter" },
+  { value: "bounce", label: "Bounce" },
 ];
 
-function TextInspector({ text }: { text: TextOverlay }) {
-  const update = (patch: Extract<EditCommand, { type: "updateText" }>["patch"]) =>
-    dispatch({ type: "updateText", textId: text.id, patch });
+const CASES: { value: TextStyle["case"]; label: string; title: string }[] = [
+  { value: "none", label: "Aa", title: "As typed" },
+  { value: "upper", label: "AA", title: "Uppercase" },
+  { value: "lower", label: "aa", title: "Lowercase" },
+  { value: "title", label: "Ab", title: "Title case" },
+];
+
+const WEIGHTS = [
+  { value: 400, label: "Regular" },
+  { value: 600, label: "Semi" },
+  { value: 700, label: "Bold" },
+  { value: 900, label: "Black" },
+];
+
+type ItemPatch = Extract<EditCommand, { type: "updateItem" }>["patch"];
+
+/** A preset as a style patch: every field set, effects the preset lacks turned off. */
+function presetPatch(presetId: string, size: number): ItemPatch {
+  const s = presetTextStyle(presetById(presetId), size);
+  return {
+    presetId,
+    style: { ...s, gradient: s.gradient ?? null, stroke: s.stroke ?? null, shadow: s.shadow ?? null, background: s.background ?? null },
+  };
+}
+
+function TextInspector({ text }: { text: TextItem }) {
+  const update = (patch: ItemPatch) => dispatch({ type: "updateItem", itemId: text.id, patch });
   const duration = useTimeline({ original: false }).durationMs;
+  const { style, transform, animation } = text;
 
   return (
     <>
@@ -276,13 +311,14 @@ function TextInspector({ text }: { text: TextOverlay }) {
           aria-label="Text content"
           className="w-full resize-none rounded-[10px] border px-2.5 py-2 text-[13px] outline-none focus:border-ink"
         />
+        <Segmented label="Letter case" value={style.case} options={CASES} onChange={(c) => update({ style: { case: c } })} />
       </Section>
       <Section id="text-style" title="Style">
         <div className="grid grid-cols-3 gap-1.5">
           {CAPTION_PRESETS.map((p) => (
             <button
               key={p.id}
-              onClick={() => update({ presetId: p.id })}
+              onClick={() => update(presetPatch(p.id, style.size))}
               aria-pressed={text.presetId === p.id}
               title={p.name}
               className={cn(
@@ -294,12 +330,96 @@ function TextInspector({ text }: { text: TextOverlay }) {
             </button>
           ))}
         </div>
-        <SliderRow label="Size" value={text.size} min={16} max={240} onChange={(size) => update({ size })} />
-        <SliderRow label="Position X" value={Math.round(text.x * 100)} min={0} max={100} format={pct} onChange={(v) => update({ x: v / 100 })} />
-        <SliderRow label="Position Y" value={Math.round(text.y * 100)} min={0} max={100} format={pct} onChange={(v) => update({ y: v / 100 })} />
+        <SelectRow
+          label="Font"
+          value={style.fontFamily}
+          options={FONT_FAMILIES.some((f) => f.value === style.fontFamily) ? FONT_FAMILIES : [{ label: "Preset font", value: style.fontFamily }, ...FONT_FAMILIES]}
+          onChange={(fontFamily) => update({ style: { fontFamily } })}
+        />
+        <div className="flex items-center gap-1">
+          <Segmented
+            label="Font weight"
+            className="flex-1"
+            value={style.fontWeight}
+            options={WEIGHTS}
+            onChange={(fontWeight) => update({ style: { fontWeight } })}
+          />
+          <IconButton label="Italic" pressed={style.italic} onClick={() => update({ style: { italic: !style.italic } })} className="border">
+            <Italic className="size-4" />
+          </IconButton>
+        </div>
+        <SliderRow label="Size" value={style.size} min={16} max={240} onChange={(size) => update({ style: { size } })} />
+        <Segmented
+          label="Alignment"
+          value={style.align}
+          options={[
+            { value: "left", label: <AlignLeft className="size-4" />, title: "Align left" },
+            { value: "center", label: <AlignCenter className="size-4" />, title: "Align center" },
+            { value: "right", label: <AlignRight className="size-4" />, title: "Align right" },
+          ]}
+          onChange={(align) => update({ style: { align } })}
+        />
+        <ColorField value={style.color} onChange={(color) => update({ style: { color, gradient: null } })} label="Text color" />
+      </Section>
+      <Section id="text-effects" title="Effects" defaultOpen={false}>
+        <ToggleRow label="Outline" checked={!!style.stroke} onChange={(on) => update({ style: { stroke: on ? {} : null } })} />
+        {style.stroke && (
+          <>
+            <ColorField value={style.stroke.color} onChange={(color) => update({ style: { stroke: { color } } })} label="Outline color" />
+            <SliderRow label="Thickness" value={style.stroke.width} min={0} max={30} onChange={(width) => update({ style: { stroke: { width } } })} />
+          </>
+        )}
+        <ToggleRow label="Shadow" checked={!!style.shadow} onChange={(on) => update({ style: { shadow: on ? {} : null } })} />
+        {style.shadow && (
+          <>
+            <ColorField value={style.shadow.color} onChange={(color) => update({ style: { shadow: { color } } })} label="Shadow color" />
+            <SliderRow label="Blur" value={style.shadow.blur} min={0} max={60} onChange={(blur) => update({ style: { shadow: { blur } } })} />
+          </>
+        )}
+        <ToggleRow label="Background box" checked={!!style.background} onChange={(on) => update({ style: { background: on ? {} : null } })} />
+        {style.background && (
+          <>
+            <ColorField value={style.background.color} onChange={(color) => update({ style: { background: { color } } })} label="Box color" />
+            <SliderRow
+              label="Box opacity"
+              value={Math.round(style.background.opacity * 100)}
+              min={0}
+              max={100}
+              format={pct}
+              onChange={(v) => update({ style: { background: { opacity: v / 100 } } })}
+            />
+          </>
+        )}
+      </Section>
+      <Section id="text-transform" title="Position">
+        <SliderRow label="Position X" value={Math.round(transform.x * 100)} min={0} max={100} format={pct} onChange={(v) => update({ transform: { x: v / 100 } })} />
+        <SliderRow label="Position Y" value={Math.round(transform.y * 100)} min={0} max={100} format={pct} onChange={(v) => update({ transform: { y: v / 100 } })} />
+        <SliderRow label="Rotation" value={Math.round(transform.rotation)} min={-180} max={180} format={(v) => `${v}°`} onChange={(rotation) => update({ transform: { rotation } })} />
+        <SliderRow label="Opacity" value={Math.round(transform.opacity * 100)} min={0} max={100} format={pct} onChange={(v) => update({ transform: { opacity: v / 100 } })} />
       </Section>
       <Section id="text-animation" title="Animation">
-        <Segmented label="Animation" value={text.animation} options={ANIMATIONS} onChange={(animation) => update({ animation })} />
+        <SelectRow
+          label="In"
+          value={animation.in.type}
+          options={ANIMATIONS}
+          onChange={(type) => update({ animation: { in: { type, durationMs: animation.in.durationMs || 250 } } })}
+        />
+        <SelectRow
+          label="Out"
+          value={animation.out.type}
+          options={ANIMATIONS}
+          onChange={(type) => update({ animation: { out: { type, durationMs: animation.out.durationMs || 200 } } })}
+        />
+        <Segmented
+          label="Loop"
+          value={animation.loop}
+          options={[
+            { value: "none", label: "No loop" },
+            { value: "pulse", label: "Pulse" },
+            { value: "wiggle", label: "Wiggle" },
+          ]}
+          onChange={(loop) => update({ animation: { loop } })}
+        />
       </Section>
       <Section id="text-timing" title="Timing">
         <div className="grid grid-cols-2 gap-2">
@@ -328,6 +448,36 @@ function TextInspector({ text }: { text: TextOverlay }) {
         </button>
       </Section>
     </>
+  );
+}
+
+function SelectRow<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <Row label={label}>
+      <select
+        value={value}
+        aria-label={label}
+        onChange={(e) => onChange(e.target.value as T)}
+        onKeyDown={(e) => e.stopPropagation()}
+        className="h-8 w-[160px] min-w-0 rounded-[10px] border bg-white px-2 text-[13px] outline-none focus:border-ink"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </Row>
   );
 }
 
@@ -398,9 +548,8 @@ const ASPECTS: { value: Aspect; label: string; w: number; h: number }[] = [
 const SWATCHES = ["#000000", "#ffffff", "#1d1d1f", "#f5f5f7", "#ff5b1f", "#ffd60a"];
 
 function ProjectInspector() {
-  const { canvas, overlays } = usePlan();
+  const { canvas, progressBar: bar } = usePlan();
   const setCanvas = (c: Extract<EditCommand, { type: "setCanvas" }>["canvas"]) => dispatch({ type: "setCanvas", canvas: c });
-  const bar = overlays.progressBar;
 
   return (
     <>
@@ -510,7 +659,7 @@ function ColorField({ value, onChange, label }: { value: string; onChange: (c: s
     setShown(value);
     setDraft(value);
   }
-  const commit = () => (/^#[0-9a-f]{6}$/i.test(draft) ? onChange(draft.toLowerCase()) : setDraft(value));
+  const commit = () => (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(draft) ? onChange(draft.toLowerCase()) : setDraft(value));
   return (
     <div className="flex items-center gap-2">
       <Popover>

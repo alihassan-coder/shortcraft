@@ -1,0 +1,497 @@
+{
+  "version": 2,
+  "id": "plan-11111111-2222-3333-4444-555555555555",
+  "title": "Morning tip",
+  "vibe": "energetic",
+  "canvas": {
+    "aspect": "9:16",
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "background": {
+      "type": "blur",
+      "color": "#000000"
+    }
+  },
+  "sources": [
+    {
+      "id": "11111111-2222-3333-4444-555555555555",
+      "src": "projects/aaaaaaaa-0000-0000-0000-000000000000/sources/11111111-2222-3333-4444-555555555555/proxy-720p.mp4",
+      "width": 720,
+      "height": 1280,
+      "durationMs": 16000,
+      "words": [
+        {
+          "id": "w0",
+          "text": "So",
+          "startMs": 350,
+          "endMs": 590
+        },
+        {
+          "id": "w1",
+          "text": "um,",
+          "startMs": 590,
+          "endMs": 830,
+          "filler": true
+        },
+        {
+          "id": "w2",
+          "text": "if",
+          "startMs": 1280,
+          "endMs": 1520
+        },
+        {
+          "id": "w3",
+          "text": "your",
+          "startMs": 1520,
+          "endMs": 1760
+        },
+        {
+          "id": "w4",
+          "text": "videos",
+          "startMs": 1760,
+          "endMs": 2000
+        },
+        {
+          "id": "w5",
+          "text": "are",
+          "startMs": 2000,
+          "endMs": 2240
+        },
+        {
+          "id": "w6",
+          "text": "not",
+          "startMs": 2240,
+          "endMs": 2480
+        },
+        {
+          "id": "w7",
+          "text": "getting—",
+          "startMs": 2480,
+          "endMs": 2720
+        },
+        {
+          "id": "w8",
+          "text": "if",
+          "startMs": 3020,
+          "endMs": 3260
+        },
+        {
+          "id": "w9",
+          "text": "your",
+          "startMs": 3260,
+          "endMs": 3500
+        },
+        {
+          "id": "w10",
+          "text": "videos",
+          "startMs": 3500,
+          "endMs": 3740
+        },
+        {
+          "id": "w11",
+          "text": "aren't",
+          "startMs": 3740,
+          "endMs": 3980
+        },
+        {
+          "id": "w12",
+          "text": "getting",
+          "startMs": 3980,
+          "endMs": 4220
+        },
+        {
+          "id": "w13",
+          "text": "views,",
+          "startMs": 4220,
+          "endMs": 4460
+        },
+        {
+          "id": "w14",
+          "text": "it's",
+          "startMs": 4620,
+          "endMs": 4860
+        },
+        {
+          "id": "w15",
+          "text": "probably",
+          "startMs": 4860,
+          "endMs": 5100
+        },
+        {
+          "id": "w16",
+          "text": "the",
+          "startMs": 5100,
+          "endMs": 5340
+        },
+        {
+          "id": "w17",
+          "text": "first",
+          "startMs": 5340,
+          "endMs": 5580
+        },
+        {
+          "id": "w18",
+          "text": "three",
+          "startMs": 5580,
+          "endMs": 5820
+        },
+        {
+          "id": "w19",
+          "text": "seconds.",
+          "startMs": 5820,
+          "endMs": 6060
+        },
+        {
+          "id": "w20",
+          "text": "Uh,",
+          "startMs": 6960,
+          "endMs": 7200,
+          "filler": true
+        },
+        {
+          "id": "w21",
+          "text": "people",
+          "startMs": 7400,
+          "endMs": 7640
+        },
+        {
+          "id": "w22",
+          "text": "decide",
+          "startMs": 7640,
+          "endMs": 7880
+        },
+        {
+          "id": "w23",
+          "text": "to",
+          "startMs": 7880,
+          "endMs": 8120
+        },
+        {
+          "id": "w24",
+          "text": "scroll",
+          "startMs": 8120,
+          "endMs": 8360
+        },
+        {
+          "id": "w25",
+          "text": "super",
+          "startMs": 8360,
+          "endMs": 8600
+        },
+        {
+          "id": "w26",
+          "text": "fast.",
+          "startMs": 8600,
+          "endMs": 8840
+        },
+        {
+          "id": "w27",
+          "text": "So",
+          "startMs": 9190,
+          "endMs": 9430
+        },
+        {
+          "id": "w28",
+          "text": "here's",
+          "startMs": 9430,
+          "endMs": 9670
+        },
+        {
+          "id": "w29",
+          "text": "the",
+          "startMs": 9670,
+          "endMs": 9910
+        },
+        {
+          "id": "w30",
+          "text": "trick:",
+          "startMs": 9910,
+          "endMs": 10150
+        },
+        {
+          "id": "w31",
+          "text": "start",
+          "startMs": 10410,
+          "endMs": 10650
+        },
+        {
+          "id": "w32",
+          "text": "with",
+          "startMs": 10650,
+          "endMs": 10890
+        },
+        {
+          "id": "w33",
+          "text": "your",
+          "startMs": 10890,
+          "endMs": 11130
+        },
+        {
+          "id": "w34",
+          "text": "strongest",
+          "startMs": 11130,
+          "endMs": 11370
+        },
+        {
+          "id": "w35",
+          "text": "line,",
+          "startMs": 11370,
+          "endMs": 11610
+        },
+        {
+          "id": "w36",
+          "text": "add",
+          "startMs": 11730,
+          "endMs": 11970
+        },
+        {
+          "id": "w37",
+          "text": "big",
+          "startMs": 11970,
+          "endMs": 12210
+        },
+        {
+          "id": "w38",
+          "text": "captions,",
+          "startMs": 12210,
+          "endMs": 12450
+        },
+        {
+          "id": "w39",
+          "text": "and",
+          "startMs": 12550,
+          "endMs": 12790
+        },
+        {
+          "id": "w40",
+          "text": "cut",
+          "startMs": 12790,
+          "endMs": 13030
+        },
+        {
+          "id": "w41",
+          "text": "every",
+          "startMs": 13030,
+          "endMs": 13270
+        },
+        {
+          "id": "w42",
+          "text": "pause.",
+          "startMs": 13270,
+          "endMs": 13510
+        },
+        {
+          "id": "w43",
+          "text": "That's",
+          "startMs": 14210,
+          "endMs": 14450
+        },
+        {
+          "id": "w44",
+          "text": "it.",
+          "startMs": 14450,
+          "endMs": 14690
+        },
+        {
+          "id": "w45",
+          "text": "Try",
+          "startMs": 14870,
+          "endMs": 15110
+        },
+        {
+          "id": "w46",
+          "text": "it",
+          "startMs": 15110,
+          "endMs": 15350
+        },
+        {
+          "id": "w47",
+          "text": "today.",
+          "startMs": 15350,
+          "endMs": 15590
+        }
+      ]
+    }
+  ],
+  "clips": [
+    {
+      "id": "clip-1",
+      "sourceId": "11111111-2222-3333-4444-555555555555",
+      "inMs": 0,
+      "outMs": 16000,
+      "speed": 1,
+      "volume": 1,
+      "muted": false,
+      "frame": {
+        "fit": "fill",
+        "scale": 1,
+        "x": 0,
+        "y": 0,
+        "rotate": 0,
+        "flipH": false,
+        "flipV": false
+      },
+      "crop": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0
+      },
+      "color": {
+        "preset": "none",
+        "brightness": 0,
+        "contrast": 0,
+        "saturation": 0,
+        "temperature": 0
+      }
+    }
+  ],
+  "cuts": {
+    "items": [
+      {
+        "id": "silence-0",
+        "sourceId": "11111111-2222-3333-4444-555555555555",
+        "startMs": 0,
+        "endMs": 160,
+        "reason": "silence"
+      },
+      {
+        "id": "filler-w1",
+        "sourceId": "11111111-2222-3333-4444-555555555555",
+        "startMs": 590,
+        "endMs": 830,
+        "reason": "filler"
+      },
+      {
+        "id": "silence-1",
+        "sourceId": "11111111-2222-3333-4444-555555555555",
+        "startMs": 950,
+        "endMs": 1160,
+        "reason": "silence"
+      },
+      {
+        "id": "retake-0",
+        "sourceId": "11111111-2222-3333-4444-555555555555",
+        "startMs": 1280,
+        "endMs": 3020,
+        "reason": "retake",
+        "note": "You said this line twice. Kept the second take."
+      },
+      {
+        "id": "silence-2",
+        "sourceId": "11111111-2222-3333-4444-555555555555",
+        "startMs": 6180,
+        "endMs": 6840,
+        "reason": "silence"
+      },
+      {
+        "id": "filler-w20",
+        "sourceId": "11111111-2222-3333-4444-555555555555",
+        "startMs": 6960,
+        "endMs": 7200,
+        "reason": "filler"
+      },
+      {
+        "id": "silence-3",
+        "sourceId": "11111111-2222-3333-4444-555555555555",
+        "startMs": 13630,
+        "endMs": 14090,
+        "reason": "silence"
+      },
+      {
+        "id": "silence-4",
+        "sourceId": "11111111-2222-3333-4444-555555555555",
+        "startMs": 15710,
+        "endMs": 16000,
+        "reason": "silence"
+      }
+    ],
+    "silence": true,
+    "filler": true,
+    "retake": true,
+    "restored": []
+  },
+  "captions": {
+    "enabled": true,
+    "presetId": "bold-pop",
+    "size": 108,
+    "positionY": 0.68,
+    "wordsPerLine": 2,
+    "showEmojis": false,
+    "highlights": [
+      "w10",
+      "w15",
+      "w19",
+      "w30",
+      "w34",
+      "w38",
+      "w47"
+    ],
+    "emojis": {},
+    "edits": {}
+  },
+  "zooms": {
+    "enabled": true,
+    "items": [
+      {
+        "id": "zoom-0",
+        "sourceId": "11111111-2222-3333-4444-555555555555",
+        "startMs": 350,
+        "endMs": 830,
+        "scale": 1.2,
+        "style": "punch",
+        "focusX": 0.5,
+        "focusY": 0.33
+      },
+      {
+        "id": "zoom-1",
+        "sourceId": "11111111-2222-3333-4444-555555555555",
+        "startMs": 7400,
+        "endMs": 8360,
+        "scale": 1.2,
+        "style": "punch",
+        "focusX": 0.5,
+        "focusY": 0.33
+      },
+      {
+        "id": "zoom-2",
+        "sourceId": "11111111-2222-3333-4444-555555555555",
+        "startMs": 14210,
+        "endMs": 14690,
+        "scale": 1.2,
+        "style": "punch",
+        "focusX": 0.5,
+        "focusY": 0.33
+      }
+    ]
+  },
+  "overlays": {
+    "texts": [],
+    "images": [],
+    "progressBar": {
+      "enabled": false,
+      "position": "bottom",
+      "color": "#ffffff"
+    }
+  },
+  "music": {
+    "trackId": "summer-fun",
+    "volume": 0.45,
+    "ducking": true,
+    "duckTo": 0.25,
+    "fadeInMs": 600,
+    "fadeOutMs": 1200
+  },
+  "hook": {
+    "enabled": true,
+    "text": "If your videos aren't getting views",
+    "options": [
+      "If your videos aren't getting views"
+    ],
+    "durationMs": 2600
+  },
+  "voice": {
+    "enhance": false
+  }
+}
