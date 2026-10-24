@@ -1,0 +1,184 @@
+"use client";
+
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Highlighter, RotateCcw, Scissors, X } from "lucide-react";
+import { cutForWord, isCutActive, isWordCut } from "@/lib/edit-plan/timeline";
+import { playerControls } from "@/lib/editor/player";
+import { dispatch, usePlanStore, useTimeline, useUiStore } from "@/lib/editor/store";
+import { cn } from "@/lib/utils";
+
+const EMOJIS = ["🔥", "👀", "💡", "⏱️", "📱", "🚀", "✅", "❌", "😂", "❤️", "💰", "🎯"];
+
+export function Transcript() {
+  const plan = usePlanStore((s) => s.plan);
+  const tl = useTimeline();
+  const { selectedWordId, selectWord, currentMs } = useUiStore();
+  // One source per project for now; the transcript follows the first one.
+  const source = plan.sources[0];
+  const words = source.words;
+  const now = tl.toSource(currentMs);
+  const selected = words.find((w) => w.id === selectedWordId);
+  const scroller = useRef<HTMLDivElement>(null);
+
+  // Pauses that have a silence cut, keyed by the word they follow.
+  const pauseAfter = useMemo(() => {
+    const map = new Map<string, { ms: number; cut: boolean }>();
+    for (const c of plan.cuts.items.filter((c) => c.reason === "silence" && c.sourceId === source.id)) {
+      const prev = [...words].reverse().find((w) => w.endMs <= c.startMs + 5);
+      if (prev) map.set(prev.id, { ms: c.endMs - c.startMs, cut: isCutActive(plan, c) });
+    }
+    return map;
+  }, [plan, words, source.id]);
+
+  const currentId =
+    now && now.sourceId === source.id ? words.find((w) => now.srcMs >= w.startMs && now.srcMs < w.endMs)?.id : undefined;
+
+  useEffect(() => {
+    if (!currentId || !useUiStore.getState().playing) return;
+    scroller.current?.querySelector(`[data-word="${currentId}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [currentId]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="border-b px-5 py-4">
+        <h2 className="text-[15px] font-semibold">Transcript</h2>
+        <p className="text-[13px] text-muted-foreground">Click a word to select it. Delete to cut.</p>
+      </div>
+
+      {selected && (
+        <WordActions
+          key={selected.id}
+          text={plan.captions.edits[selected.id] ?? selected.text}
+          cut={isWordCut(plan, source.id, selected)}
+          highlighted={plan.captions.highlights.includes(selected.id)}
+          emoji={plan.captions.emojis[selected.id]}
+          onCut={() => dispatch({ type: "toggleWordCut", sourceId: source.id, wordId: selected.id })}
+          onHighlight={() => dispatch({ type: "toggleHighlight", wordId: selected.id })}
+          onEmoji={(emoji) => dispatch({ type: "setEmoji", wordId: selected.id, emoji })}
+          onText={(text) => dispatch({ type: "setWordText", wordId: selected.id, text })}
+          onClose={() => selectWord(null)}
+        />
+      )}
+
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+        <p className="text-[16px] leading-[2.1]">
+          {words.map((w) => {
+            const cut = isWordCut(plan, source.id, w);
+            const c = cut ? cutForWord(plan, source.id, w) : undefined;
+            const pause = pauseAfter.get(w.id);
+            const highlighted = plan.captions.highlights.includes(w.id);
+            const emoji = plan.captions.showEmojis ? plan.captions.emojis[w.id] : undefined;
+            const current = w.id === currentId && !cut;
+            return (
+              <Fragment key={w.id}>
+                <button
+                  data-word={w.id}
+                  onClick={() => {
+                    selectWord(w.id);
+                    playerControls.seekSourceMs(source.id, w.startMs);
+                  }}
+                  title={c?.note ?? (c ? `Cut: ${c.reason}` : undefined)}
+                  style={current ? { background: "var(--ink)", color: "#fff" } : undefined}
+                  className={cn(
+                    "relative mr-[0.3em] rounded-md px-0.5 transition-colors",
+                    cut && "text-cut/80 line-through decoration-cut/50",
+                    cut && c?.reason === "retake" && "bg-cut/[0.06]",
+                    !cut && highlighted && !current && "bg-caption/45",
+                    w.id === selectedWordId && "ring-2 ring-rec ring-offset-1",
+                    !cut && !current && "hover:bg-surface",
+                  )}
+                >
+                  {emoji && !cut && <span className="mr-0.5 text-[13px]">{emoji}</span>}
+                  {plan.captions.edits[w.id] ?? w.text}
+                </button>
+                {pause && (
+                  <span
+                    className={cn(
+                      "mr-[0.3em] inline-block rounded px-1 align-middle font-mono text-[10px] leading-4",
+                      pause.cut ? "bg-cut/10 text-cut/80 line-through" : "bg-surface text-muted-foreground",
+                    )}
+                  >
+                    {(pause.ms / 1000).toFixed(1)}s
+                  </span>
+                )}
+                {/[.!?]$/.test(w.text) && <span className="block h-2" />}
+              </Fragment>
+            );
+          })}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function WordActions({
+  text,
+  cut,
+  highlighted,
+  emoji,
+  onCut,
+  onHighlight,
+  onEmoji,
+  onText,
+  onClose,
+}: {
+  text: string;
+  cut: boolean;
+  highlighted: boolean;
+  emoji?: string;
+  onCut: () => void;
+  onHighlight: () => void;
+  onEmoji: (e: string | null) => void;
+  onText: (t: string) => void;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState(text);
+  return (
+    <div className="space-y-3 border-b bg-surface/60 px-5 py-4">
+      <div className="flex items-center gap-2">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => onText(draft)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          }}
+          aria-label="Word text"
+          className="h-9 min-w-0 flex-1 rounded-lg border bg-white px-3 text-sm outline-none focus:border-ink"
+        />
+        <button onClick={onClose} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-white" aria-label="Close">
+          <X className="size-4" />
+        </button>
+      </div>
+      <div className="flex gap-1.5">
+        <button
+          onClick={onHighlight}
+          aria-pressed={highlighted}
+          className={cn(
+            "flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px]",
+            highlighted ? "bg-ink text-white" : "border bg-white hover:bg-surface",
+          )}
+        >
+          <Highlighter className="size-3.5" /> Highlight
+        </button>
+        <button onClick={onCut} className="flex h-8 items-center gap-1.5 rounded-full border bg-white px-3 text-[13px] hover:bg-surface">
+          {cut ? <RotateCcw className="size-3.5" /> : <Scissors className="size-3.5" />}
+          {cut ? "Restore" : "Cut word"}
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {EMOJIS.map((e) => (
+          <button
+            key={e}
+            onClick={() => onEmoji(emoji === e ? null : e)}
+            aria-pressed={emoji === e}
+            className={cn("grid size-8 place-items-center rounded-lg text-base", emoji === e ? "bg-ink" : "hover:bg-white")}
+          >
+            {e}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
