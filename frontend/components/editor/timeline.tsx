@@ -1,11 +1,23 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { PencilLine, Trash2 } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { trackById } from "@/lib/edit-plan/music-library";
 import { activeCuts, isWordCut } from "@/lib/edit-plan/timeline";
+import { keyLabel } from "@/lib/editor/actions";
+import { revealPanel } from "@/lib/editor/layout";
 import { playerControls } from "@/lib/editor/player";
-import { dispatch, usePlanStore, useTimeline, useUiStore } from "@/lib/editor/store";
+import { dispatch, usePlanStore, useSelectedId, useTimeline, useUiStore } from "@/lib/editor/store";
 import { cn } from "@/lib/utils";
+import { TextContextMenu } from "./assets";
 
 const CUT_TINT = {
   silence: "bg-[repeating-linear-gradient(135deg,rgba(240,68,56,.22)_0_4px,rgba(240,68,56,.08)_4px_8px)]",
@@ -17,9 +29,12 @@ const CUT_TINT = {
 // Timeline in SOURCE time so you can see what was cut and where.
 export function Timeline() {
   const plan = usePlanStore((s) => s.plan);
-  const { currentMs, selectedZoomId, selectZoom } = useUiStore();
+  const { currentMs, selectZoom, select } = useUiStore();
+  const selectedZoomId = useSelectedId("zoom");
+  const selectedClipId = useSelectedId("clip");
+  const selectedTextId = useSelectedId("text");
   const tl = useTimeline();
-  // Source-time view of the first (only) source; E3 replaces this with the multi-track timeline.
+  // Source-time view of the first (only) source; E4 replaces this with the multi-track timeline.
   const source = plan.sources[0];
   const duration = source.durationMs;
   const playheadMs = tl.toSource(currentMs)?.srcMs ?? 0;
@@ -35,11 +50,18 @@ export function Timeline() {
 
   const seconds = Array.from({ length: Math.floor(duration / 1000) + 1 }, (_, i) => i);
   const track = trackById(plan.music.trackId);
+  // Text lives in output time; place it at the source moment it starts on (approximate until E4).
+  const texts = plan.overlays.texts.map((t) => {
+    const s0 = tl.toSource(t.startMs)?.srcMs ?? 0;
+    const s1 = tl.toSource(Math.max(t.startMs, t.endMs - 1))?.srcMs ?? s0;
+    return { t, start: s0, end: Math.max(s0 + 200, s1) };
+  });
 
   return (
     <div className="flex h-full flex-col px-5 py-3 select-none">
       <div className="grid min-h-0 grid-cols-[72px_1fr] gap-x-3">
         <div className="space-y-2 pt-6 text-[11px] text-muted-foreground">
+          <p className="h-5 leading-5">Text</p>
           <p className="h-8 leading-8">Video</p>
           <p className="h-5 leading-5">Captions</p>
           <p className="h-6 leading-6">Zoom</p>
@@ -50,7 +72,11 @@ export function Timeline() {
           ref={area}
           className="relative cursor-pointer"
           onPointerDown={(e) => {
-            if ((e.target as HTMLElement).closest("[data-zoom]")) return;
+            if (e.button !== 0) return;
+            const el = e.target as HTMLElement;
+            if (el.closest("[data-zoom], [data-text-block]")) return;
+            const clipId = el.closest<HTMLElement>("[data-clip]")?.dataset.clip;
+            if (clipId) select({ kind: "clip", id: clipId });
             playerControls.seekSourceMs(source.id, msFromEvent(e.clientX));
           }}
         >
@@ -64,12 +90,45 @@ export function Timeline() {
           </div>
 
           <div className="mt-1 space-y-2">
+            {/* Text lane */}
+            <div className="relative h-5 rounded-md bg-surface">
+              {texts.map(({ t, start, end }) => (
+                <TextContextMenu
+                  key={t.id}
+                  textId={t.id}
+                  onEdit={() => {
+                    select({ kind: "text", id: t.id });
+                    revealPanel("inspector");
+                  }}
+                >
+                  <button
+                    data-text-block={t.id}
+                    onClick={() => {
+                      select({ kind: "text", id: t.id });
+                      playerControls.seekOutputMs(t.startMs);
+                    }}
+                    className={cn(
+                      "absolute top-0.5 h-4 truncate rounded-[4px] px-1.5 text-left text-[10px] leading-4 font-medium",
+                      t.id === selectedTextId ? "bg-ink text-white ring-2 ring-rec" : "bg-white text-ink ring-1 ring-line hover:ring-ink/30",
+                    )}
+                    style={{ left: pct(start), width: pct(end - start) }}
+                  >
+                    {t.text}
+                  </button>
+                </TextContextMenu>
+              ))}
+            </div>
+
             {/* Video lane */}
             <div className="relative h-8 overflow-hidden rounded-md bg-[#e8e8ed]">
               {pieces.map((s) => (
                 <span
                   key={s.key}
-                  className="absolute inset-y-0 rounded-[5px] border border-ink/10 bg-[length:auto_100%] bg-repeat-x opacity-90"
+                  data-clip={s.clipId}
+                  className={cn(
+                    "absolute inset-y-0 rounded-[5px] border border-ink/10 bg-[length:auto_100%] bg-repeat-x opacity-90",
+                    s.clipId === selectedClipId && "z-10 border-rec ring-2 ring-rec ring-inset",
+                  )}
                   style={{
                     left: pct(s.srcStart),
                     width: pct(s.srcEnd - s.srcStart),
@@ -110,10 +169,12 @@ export function Timeline() {
                 plan.zooms.items.map((z) => {
                   const offset = drag?.id === z.id ? drag.dx : 0;
                   return (
+                    <ContextMenu key={z.id} onOpenChange={(open) => open && selectZoom(z.id)}>
+                      <ContextMenuTrigger asChild>
                     <button
-                      key={z.id}
-                      data-zoom
+                      data-zoom={z.id}
                       onPointerDown={(e) => {
+                        if (e.button !== 0) return;
                         e.currentTarget.setPointerCapture(e.pointerId);
                         selectZoom(z.id);
                         setDrag({ id: z.id, dx: 0 });
@@ -144,6 +205,29 @@ export function Timeline() {
                     >
                       <span className="truncate">{Math.round(z.scale * 100)}%</span>
                     </button>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-44">
+                        <ContextMenuItem
+                          onSelect={() => {
+                            selectZoom(z.id);
+                            revealPanel("inspector");
+                          }}
+                        >
+                          <PencilLine /> Edit
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          variant="destructive"
+                          onSelect={() => {
+                            dispatch({ type: "removeZoom", zoomId: z.id });
+                            selectZoom(null);
+                          }}
+                        >
+                          <Trash2 /> Delete
+                          <ContextMenuShortcut>{keyLabel("delete")}</ContextMenuShortcut>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
                   );
                 })}
             </div>

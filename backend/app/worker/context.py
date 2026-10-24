@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -18,3 +19,11 @@ class JobContext:
     @property
     def tools(self) -> MediaTools:
         return MediaTools(ffmpeg=self.settings.ffmpeg_path, ffprobe=self.settings.ffprobe_path)
+
+
+Progress = Callable[[int], Awaitable[None]]
+"""Report job progress (0-100). Each call writes the value to the job row."""
+
+
+class JobFailedError(Exception):
+    """A job failed for a reason worth showing to the user as-is."""

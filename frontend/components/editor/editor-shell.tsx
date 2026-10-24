@@ -6,10 +6,12 @@ import { Monitor } from "lucide-react";
 import { DEMO_PLAN } from "@/lib/edit-plan/demo-plan";
 import { parsePlan } from "@/lib/edit-plan/migrate";
 import { resolveTimeline } from "@/lib/edit-plan/timeline";
+import { deleteSelection, duplicateClip, splitAtPlayhead, toggleOriginal } from "@/lib/editor/actions";
 import { playerControls } from "@/lib/editor/player";
-import { revealPanel, togglePanel, useBreakpoint } from "@/lib/editor/layout";
-import { dispatch, redo, undo, usePlanStore, useUiStore } from "@/lib/editor/store";
-import { TOOL_KEYS } from "./chrome";
+import { togglePanel, useBreakpoint } from "@/lib/editor/layout";
+import { useSaveStore } from "@/lib/editor/save";
+import { dispatch, redo, selectedId, undo, usePlanStore, useUiStore } from "@/lib/editor/store";
+import { TAB_KEYS, openTab } from "./assets";
 import { Workspace } from "./workspace";
 
 const storageKey = (id: string) => `shortcraft:plan:${id}`;
@@ -27,59 +29,96 @@ function useAutosave(projectId: string) {
   }, [projectId]);
 
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    const unsub = usePlanStore.subscribe((s) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const save = useSaveStore.getState();
+    const write = () => {
+      timer = undefined;
+      try {
+        localStorage.setItem(storageKey(projectId), JSON.stringify(usePlanStore.getState().plan));
+        save.setSaved();
+      } catch {
+        // Storage full or blocked: the edit still works, it just won't survive a reload.
+        save.setError();
+      }
+    };
+    const unsub = usePlanStore.subscribe((s, prev) => {
+      if (s.plan === prev.plan) return;
+      save.setSaving();
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        try {
-          localStorage.setItem(storageKey(projectId), JSON.stringify(s.plan));
-        } catch {
-          // Storage full or blocked: the edit still works, it just won't survive a reload.
-        }
-      }, 500);
+      timer = setTimeout(write, 500);
     });
+    // Leaving with a pending change: write it now.
+    const flush = () => timer && (clearTimeout(timer), write());
+    window.addEventListener("pagehide", flush);
+    const onNetwork = () => useSaveStore.getState().status !== "saving" && useSaveStore.getState().status !== "error" && save.setSaved();
+    window.addEventListener("online", onNetwork);
+    window.addEventListener("offline", onNetwork);
     return () => {
-      clearTimeout(timer);
+      flush();
       unsub();
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("online", onNetwork);
+      window.removeEventListener("offline", onNetwork);
     };
   }, [projectId]);
 }
+
+// Keys never fire while typing, or while a menu or dialog has focus (they own their keys).
+const isTyping = (el: HTMLElement) => !!el.closest("input, textarea, select, [contenteditable=true]");
+const inOverlay = (el: HTMLElement) => !!el.closest('[role=menu], [role=menubar], [role=dialog], [role=listbox]');
 
 function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
-      if (el.closest("input, textarea, [contenteditable=true]")) return;
       const mod = e.ctrlKey || e.metaKey;
       const ui = useUiStore.getState();
+      const key = e.key.toLowerCase();
+
+      // The palette works from anywhere, even a text field.
+      if (mod && key === "k") {
+        e.preventDefault();
+        return ui.setDialog(ui.dialog === "palette" ? null : "palette");
+      }
+      if (isTyping(el) || inOverlay(el) || ui.dialog) return;
+
       const { plan } = usePlanStore.getState();
       const source = plan.sources[0];
+      const wordId = selectedId("word");
 
-      if (mod && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
+      if (mod) {
+        switch (key) {
+          case "z":
+            e.preventDefault();
+            return e.shiftKey ? redo() : undo();
+          case "y":
+            e.preventDefault();
+            return redo();
+          case "d":
+            e.preventDefault();
+            return duplicateClip();
+          case "e":
+            e.preventDefault();
+            return ui.setDialog("export");
+        }
         return;
       }
-      if (mod && e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        redo();
-        return;
-      }
-      if (mod || e.altKey) return;
+      if (e.altKey) return;
 
-      if (TOOL_KEYS[e.key]) {
-        ui.setTool(TOOL_KEYS[e.key]);
-        return revealPanel("tools");
+      if (e.shiftKey && (e.code === "Digit0" || e.code === "Digit1")) {
+        e.preventDefault();
+        return ui.setPreviewZoom(e.code === "Digit0" ? "fit" : 1);
       }
+      if (e.key === "?") return ui.setDialog("shortcuts");
+      if (!e.shiftKey && TAB_KEYS[e.key]) return openTab(TAB_KEYS[e.key]);
 
       switch (e.key) {
         case "[":
           e.preventDefault();
-          return togglePanel("tools");
+          return togglePanel("assets");
         case "]":
           e.preventDefault();
-          return togglePanel("transcript");
+          return togglePanel("inspector");
         case "\\":
           e.preventDefault();
           return togglePanel("timeline");
@@ -91,36 +130,56 @@ function useShortcuts() {
           playerControls.toggle();
           break;
         case "k":
+        case "K":
           playerControls.pause();
           break;
         case "j":
+        case "J":
           playerControls.nudge(-1000);
           break;
         case "l":
+        case "L":
           playerControls.nudge(1000);
           break;
+        case ",":
+          playerControls.nudge(-1000 / plan.canvas.fps);
+          break;
+        case ".":
+          playerControls.nudge(1000 / plan.canvas.fps);
+          break;
+        case "Home":
+          e.preventDefault();
+          playerControls.seekOutputMs(0);
+          break;
+        case "s":
+        case "S":
+          e.preventDefault();
+          splitAtPlayhead();
+          break;
+        case "o":
+        case "O":
+          toggleOriginal();
+          break;
         case "h":
-          if (ui.selectedWordId) dispatch({ type: "toggleHighlight", wordId: ui.selectedWordId });
+        case "H":
+          if (wordId) dispatch({ type: "toggleHighlight", wordId });
           break;
         case "Delete":
         case "Backspace":
-          if (ui.selectedWordId) {
+          if (ui.selection) {
             e.preventDefault();
-            dispatch({ type: "toggleWordCut", sourceId: source.id, wordId: ui.selectedWordId });
+            deleteSelection();
           }
           break;
         case "Escape":
-          ui.selectWord(null);
-          ui.selectZoom(null);
+          ui.select(null);
           break;
         case "ArrowLeft":
         case "ArrowRight": {
           e.preventDefault();
           const words = source.words;
           const src = resolveTimeline(plan, { original: ui.original }).toSource(ui.currentMs)?.srcMs ?? 0;
-          let i = ui.selectedWordId
-            ? words.findIndex((w) => w.id === ui.selectedWordId)
-            : words.findIndex((w) => w.endMs > src);
+          let i = wordId ? words.findIndex((w) => w.id === wordId) : words.findIndex((w) => w.endMs > src);
           i = Math.max(0, Math.min(words.length - 1, i + (e.key === "ArrowRight" ? 1 : -1)));
           ui.selectWord(words[i].id);
           playerControls.seekSourceMs(source.id, words[i].startMs);
