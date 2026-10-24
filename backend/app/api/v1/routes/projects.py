@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Query, Response, status
 
-from app.api.deps import SessionDep, StorageDep
+from app.api.deps import CurrentUserDep, SessionDep, StorageDep
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
 from app.services import projects as service
 
@@ -19,8 +19,9 @@ async def list_projects(
 
 
 @router.post("", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
-async def create_project(data: ProjectCreate, session: SessionDep):
-    return await service.create_project(session, data)
+async def create_project(data: ProjectCreate, session: SessionDep, user: CurrentUserDep):
+    # Auth is optional for now: signed-in users become the owner, anonymous projects have none.
+    return await service.create_project(session, data, owner_id=user.id if user else None)
 
 
 @router.get("/{project_id}", response_model=ProjectRead)

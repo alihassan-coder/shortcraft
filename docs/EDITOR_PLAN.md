@@ -210,4 +210,104 @@ The store gets smaller: `plan`, `dispatch(command)`, `undo`/`redo`, plus UI stat
 1. **Sizes:** all of 9:16, 1:1, 4:5, 16:9 **plus a custom width × height**.
 2. **Videos:** one source video per project in this round. The schema already uses `sources[]` so adding more later is a small step.
 3. **Phone simple mode:** after the backend.
-4. **Order:** E1 → E7 as listed.
+4. **Order:** E1 → E7 as listed. **Replaced by §9 after the owner's review:** the editor must feel like a real editor.
+
+---
+
+## 9. Pro editor upgrade (owner review, 2026-10-24)
+
+> "The editor doesn't give an editor vibe." v1 is a smart preview with settings. A real editor has a **media library**, an **inspector that follows your selection**, a **multi-track timeline you edit in directly**, **handles on the video**, right-click menus, a command palette, transitions, sound effects and stickers. This section is the plan for that. The AI features stay; they become *one* part of a full editor.
+
+### 9.1 New layout (CapCut / Premiere-lite)
+
+```
+┌ Menu: File  Edit  View  Help ─────────── project name ── ↶ ↷ ── ⌘K ── Export ┐
+├───────────────┬─────────────────────────────────────────┬────────────────────┤
+│ ASSETS (tabs) │              PLAYER                     │ INSPECTOR           │
+│ Media         │   ┌──────────────┐  ▸ safe zones        │ (changes with what  │
+│ Text          │   │  9:16 canvas │  ▸ grid / snap       │  you select)        │
+│ Captions      │   │  drag/resize │  ▸ zoom 50–200%      │ Clip: transform,    │
+│ Audio · SFX   │   │  rotate on   │                      │  crop, speed, color,│
+│ Elements      │   │  the video   │                      │  volume, animation  │
+│ Transitions   │   └──────────────┘                      │ Text: font, style,  │
+│ Filters       │  ⏮ ◀▮ ▶ ▮▶ ⏭  0:12.4/0:31  1x  ⛶       │  animation in/out   │
+│ Transcript    │  ✨ Describe a change…                  │ Project: canvas     │
+├───────────────┴─────────────────────────────────────────┴────────────────────┤
+│ TOOLBAR  ✂Split ⌫Delete ⎘Dup ⏱Speed ⧉Detach audio │ Snap ◉ │ −━━●━━+ Fit    │
+│ T  Text      ▭▭▭        ▭▭▭▭                                                 │
+│ 💬 Captions  ▮▮ ▮▮▮ ▮▮ ▮▮▮▮                                                   │
+│ 🎬 Main      [▣▣▣▣ clip ▣▣▣▣]◇[▣▣▣ clip ▣▣▣]   ◇ = transition                │
+│ ✦ Elements      ★     🔥                                                      │
+│ 🎵 Music     [────────── track ─────────]                                     │
+│ 🔊 SFX          ·whoosh     ·pop                                              │
+└─────────────────────────────────────────────── playhead ─────────────────────┘
+```
+
+All panels are resizable and collapsible (E2). The transcript moves into the Assets tabs (it stays a first-class way to edit).
+
+### 9.2 Feature list
+
+| Area | Features |
+|---|---|
+| **Media library** | Uploaded video, images, audio and logos; thumbnails and duration; drag onto the timeline; "used in project" badge |
+| **Timeline** | Tracks: main video (magnetic), text, captions, elements, music, SFX. Split, trim, ripple, drag between tracks, multi-select (box + Shift), copy/paste, snapping, zoom/scroll, thumbnails and waveforms, markers, lock/mute/hide track, loop region |
+| **Player** | Drag/resize/rotate items on the canvas with handles, snap to center and edges, safe zones, grid, preview zoom, frame step (←/→), playback speed, fullscreen |
+| **Inspector: clip** | Transform (position, scale, rotation, opacity), crop, flip, speed (0.25–4×), volume, fade in/out, color (presets + sliders), filters, background (blur/color), animation in/out |
+| **Text** | Presets, Google Fonts, size, color, stroke, shadow, background box, alignment, animation in/out, timing on the Text track |
+| **Captions** | Everything from v1 plus per-line edit, word timing nudges, and style per word |
+| **Audio** | Music library, **SFX library** (whoosh, pop, ding: free Mixkit SFX), voice enhance, ducking, fades, detach audio from a clip |
+| **Elements** | Emojis, shapes, arrows, "follow" button, progress bar, logo/watermark |
+| **Transitions** | Fade, slide, wipe, zoom, whip between clips on the main track |
+| **Filters** | Natural, Warm, Cool, Vivid, Mono, Film, plus brightness/contrast/saturation/temperature |
+| **Productivity** | Command palette (Ctrl/⌘K), right-click menus everywhere, shortcut hints in tooltips, history list, toasts, first-run tour |
+| **AI (still the star)** | Describe a change, "Auto edit again", AI suggestions (hooks, highlights, zooms) you accept or reject one by one |
+| **Project** | Autosave with a real "Saved / Saving…" status, rename, duplicate, export dialog with presets and a render queue |
+
+### 9.3 Small free libraries (all MIT unless noted)
+
+| Need | Library | Why |
+|---|---|---|
+| Handles on the canvas (drag, resize, rotate, snap) | **react-moveable** | Proven, used by many editors |
+| Drag and drop (media to timeline, reorder) | **@dnd-kit/core** | Accessible, small |
+| Command palette | **shadcn `command`** (cmdk) | Already in our UI system |
+| Right-click menus | **shadcn `context-menu`** (Radix) | Already in our UI system |
+| Shortcuts | **react-hotkeys-hook** | Scoped shortcuts, ignores inputs |
+| Color picker | **react-colorful** | 2 KB |
+| Emoji picker | **frimousse** | Small, unstyled, fits shadcn |
+| Long lists (transcript, media) | **@tanstack/react-virtual** | Smooth with 3-minute transcripts |
+| Toasts | **sonner** (shadcn) | Already the shadcn standard |
+| Fonts | Google Fonts via `next/font` + a curated list | Free |
+| Thumbnails, waveform, in-browser compress/convert | **mediabunny** (MPL-2.0) | WebCodecs: fast, no huge download |
+| Transitions | **@remotion/transitions** (Remotion license) | Same engine as the preview and export |
+| SFX and music | **Mixkit** free library | Free for commercial use |
+
+**Licenses to watch:**
+- The Remotion packages are free for companies of up to 3 people.
+- mediabunny is MPL-2.0, which is fine for commercial use.
+
+### 9.4 Where ffmpeg fits
+
+| Where | ffmpeg does | Why there |
+|---|---|---|
+| **Backend worker (native ffmpeg)** | 720p H.264 preview copy, 16 kHz audio for transcription, thumbnail sprite sheet, waveform peaks JSON, loudness normalize, final MP4 post-processing (faststart, audio mix) | Fast, any format (HEVC/.mov), no browser limits. This is the main place ffmpeg runs |
+| **Browser** | Compress or convert before upload, quick thumbnails | Use **mediabunny** (WebCodecs) first. **ffmpeg.wasm** only as a fallback: it's a ~30 MB download, slower, and its core is GPL-licensed |
+
+### 9.5 Revised phases (replace E3–E7)
+
+| Phase | What ships |
+|---|---|
+| **E2 — Layout** (in progress) | Resizable/collapsible panels, breakpoints |
+| **E3 — Pro shell** | Menu bar, Assets tabs (Media, Text, Captions, Audio, Elements, Transitions, Filters, Transcript), Inspector following selection, command palette, context menus, real save status |
+| **E4 — Timeline v2** | Multi-track timeline (main/text/captions/elements/music/SFX), zoom/scroll, thumbnails and waveforms, snapping, split/trim/ripple/drag/multi-select/copy-paste, markers, track lock/mute/hide |
+| **E5 — Canvas editing** | react-moveable handles on the player, snap guides, transform/crop/flip in the Inspector, canvas sizes + custom, background |
+| **E6 — Text, elements & look** | Text tool with fonts and animations, elements/stickers/emojis, filters and color, transitions |
+| **E7 — Audio** | SFX library, music track editing, fades, detach audio, ducking control, voice enhance toggle wired to the backend |
+| **E8 — Media & backend wiring** | Media library from R2 uploads, mediabunny compress-before-upload, thumbnails and waveform from the worker, autosave to the backend plan API |
+| **E9 — Polish** | Tour, empty and loading states, performance (virtualization, caches), accessibility, tooltips with shortcuts |
+
+**Schema impact:** `overlays` grows into **tracks of items** (text, element, image, sfx, each with start/end, transform and animation) and clips get `transition` + `transform` + `opacity` + `animation`. This is a **v3 schema with a migration**, like v1 → v2. `resolveTimeline` and `applyEdit` stay the only modules that know the rules.
+
+### 9.6 Decisions (owner, 2026-10-24)
+
+- **Layout:** CapCut-style pro layout (Assets left, Player center, Inspector right, multi-track timeline bottom). Approved.
+- **All four** feature areas are wanted: pro timeline, canvas handles, text & elements, audio & SFX. They are built in the order E4 → E7 above, after E3 (pro shell).

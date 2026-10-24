@@ -23,6 +23,18 @@ class AppError(Exception):
             self.code = code
 
 
+class UnauthorizedError(AppError):
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "unauthorized"
+
+
+class StorageError(AppError):
+    """The object store (R2) failed or rejected a request."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    code = "storage_error"
+
+
 class NotFoundError(AppError):
     status_code = status.HTTP_404_NOT_FOUND
     code = "not_found"
@@ -57,7 +69,10 @@ def error_body(code: str, message: str, details: Any = None) -> dict[str, Any]:
 
 async def _app_error(_: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, AppError)
-    return JSONResponse(error_body(exc.code, exc.message), status_code=exc.status_code)
+    headers = {"WWW-Authenticate": "Bearer"} if isinstance(exc, UnauthorizedError) else None
+    return JSONResponse(
+        error_body(exc.code, exc.message), status_code=exc.status_code, headers=headers
+    )
 
 
 async def _http_error(_: Request, exc: Exception) -> JSONResponse:

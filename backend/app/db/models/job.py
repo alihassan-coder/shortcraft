@@ -17,7 +17,7 @@ class Job(TimestampMixin, Base):
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), index=True
     )
-    kind: Mapped[str] = mapped_column(String(20))  # transcribe | plan | render
+    kind: Mapped[str] = mapped_column(String(20))  # see app.schemas.job.JobKind
     status: Mapped[str] = mapped_column(String(20), default="queued")
     error: Mapped[str | None] = mapped_column(Text)
     result: Mapped[dict[str, Any] | None]

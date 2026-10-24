@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.api.v1.routes.health import liveness_router
+from app.core.auth import TokenVerifier
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
@@ -26,6 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.sessionmaker = create_sessionmaker(engine)
         app.state.storage = build_storage(settings)
         app.state.job_queue = build_job_queue(settings)
+        app.state.token_verifier = TokenVerifier(settings)
         try:
             yield
         finally:

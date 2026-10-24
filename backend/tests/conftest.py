@@ -1,12 +1,13 @@
 import copy
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from moto import mock_aws
 
-from app.core.config import Settings
+from app.core.config import MiB, Settings
 from app.db.base import Base
 from app.main import create_app
 
@@ -121,21 +122,32 @@ def plan() -> dict[str, Any]:
     return copy.deepcopy(VALID_PLAN)
 
 
+def make_settings(tmp_path: Path, **overrides: Any) -> Settings:
+    """Test settings: never read backend/.env, always SQLite in memory + local disk, no auth."""
+    values: dict[str, Any] = {
+        "env": "test",
+        "database_url": "sqlite+aiosqlite:///:memory:",
+        "database_url_migrations": None,
+        "storage_backend": "local",
+        "local_storage_dir": tmp_path / "uploads",
+        "public_base_url": "http://test",
+        "max_upload_bytes": 1024 * 1024,
+        "auth_required": False,
+        "supabase_url": None,
+        "supabase_jwt_secret": None,
+        "supabase_jwks_url": None,
+        "r2_public_base_url": None,
+    }
+    values.update(overrides)
+    return Settings(_env_file=None, **values)  # type: ignore[call-arg]
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(
-        _env_file=None,  # type: ignore[call-arg]
-        env="test",
-        database_url="sqlite+aiosqlite:///:memory:",
-        local_storage_dir=tmp_path / "uploads",
-        public_base_url="http://test",
-        max_upload_bytes=1024 * 1024,
-    )
+    return make_settings(tmp_path)
 
 
-@pytest.fixture
-async def client(settings: Settings) -> AsyncIterator[AsyncClient]:
-    app = create_app(settings)
+async def _client_for(app: Any) -> AsyncIterator[AsyncClient]:
     async with app.router.lifespan_context(app):
         async with app.state.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -145,7 +157,43 @@ async def client(settings: Settings) -> AsyncIterator[AsyncClient]:
 
 
 @pytest.fixture
+async def client(settings: Settings) -> AsyncIterator[AsyncClient]:
+    async for http in _client_for(create_app(settings)):
+        yield http
+
+
+@pytest.fixture
 async def project_id(client: AsyncClient) -> str:
     response = await client.post("/api/v1/projects", json={"title": "Test project"})
     assert response.status_code == 201
     return response.json()["id"]
+
+
+# --- R2 via moto ---------------------------------------------------------------------------
+
+R2_ACCOUNT = "testacct"
+R2_ENDPOINT = f"https://{R2_ACCOUNT}.r2.cloudflarestorage.com"
+R2_BUCKET = "shortcraft-test"
+
+
+@pytest.fixture
+def r2_overrides() -> dict[str, Any]:
+    """Settings for R2Storage with fake keys; small sizes so multipart tests stay fast."""
+    return {
+        "storage_backend": "r2",
+        "r2_account_id": R2_ACCOUNT,
+        "r2_bucket": R2_BUCKET,
+        "r2_access_key_id": "test-access-key",
+        "r2_secret_access_key": "test-secret-key",
+        "multipart_threshold_bytes": 5 * MiB,
+        "multipart_part_size_bytes": 5 * MiB,
+        "max_upload_bytes": 20 * MiB,
+    }
+
+
+@pytest.fixture
+def mocked_s3(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """In-process S3 mock (moto) that also answers the R2-style endpoint. No network."""
+    monkeypatch.setenv("MOTO_S3_CUSTOM_ENDPOINTS", R2_ENDPOINT)
+    with mock_aws():
+        yield

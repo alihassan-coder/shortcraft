@@ -21,8 +21,10 @@ async def get_project(session: AsyncSession, project_id: uuid.UUID) -> Project:
     return project
 
 
-async def create_project(session: AsyncSession, data: ProjectCreate) -> Project:
-    project = Project(title=data.title)
+async def create_project(
+    session: AsyncSession, data: ProjectCreate, *, owner_id: uuid.UUID | None = None
+) -> Project:
+    project = Project(title=data.title, owner_id=owner_id)
     session.add(project)
     await session.commit()
     return project

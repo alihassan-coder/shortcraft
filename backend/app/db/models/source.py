@@ -23,7 +23,10 @@ class Source(TimestampMixin, Base):
     content_type: Mapped[str] = mapped_column(String(100))
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     storage_key: Mapped[str] = mapped_column(String(512), unique=True)
-    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | uploaded
+    # pending | uploaded | aborted
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    # S3 multipart upload id while a multipart upload is in progress (R2 only).
+    upload_id: Mapped[str | None] = mapped_column(String(1024))
     # Filled by the transcode/probe step later.
     width: Mapped[int | None] = mapped_column(Integer)
     height: Mapped[int | None] = mapped_column(Integer)

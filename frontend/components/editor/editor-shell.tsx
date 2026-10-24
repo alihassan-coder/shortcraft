@@ -7,13 +7,10 @@ import { DEMO_PLAN } from "@/lib/edit-plan/demo-plan";
 import { parsePlan } from "@/lib/edit-plan/migrate";
 import { resolveTimeline } from "@/lib/edit-plan/timeline";
 import { playerControls } from "@/lib/editor/player";
+import { revealPanel, togglePanel, useBreakpoint } from "@/lib/editor/layout";
 import { dispatch, redo, undo, usePlanStore, useUiStore } from "@/lib/editor/store";
-import { TOOL_KEYS, ToolRail, TopBar } from "./chrome";
-import { ToolPanel } from "./panels";
-import { Preview } from "./preview";
-import { PromptBar } from "./prompt-bar";
-import { Timeline } from "./timeline";
-import { Transcript } from "./transcript";
+import { TOOL_KEYS } from "./chrome";
+import { Workspace } from "./workspace";
 
 const storageKey = (id: string) => `shortcraft:plan:${id}`;
 
@@ -71,7 +68,22 @@ function useShortcuts() {
       }
       if (mod || e.altKey) return;
 
-      if (TOOL_KEYS[e.key]) return ui.setTool(TOOL_KEYS[e.key]);
+      if (TOOL_KEYS[e.key]) {
+        ui.setTool(TOOL_KEYS[e.key]);
+        return revealPanel("tools");
+      }
+
+      switch (e.key) {
+        case "[":
+          e.preventDefault();
+          return togglePanel("tools");
+        case "]":
+          e.preventDefault();
+          return togglePanel("transcript");
+        case "\\":
+          e.preventDefault();
+          return togglePanel("timeline");
+      }
 
       switch (e.key) {
         case " ":
@@ -140,39 +152,20 @@ export function EditorShell({ projectId }: { projectId: string }) {
     );
   }
 
+  return <EditorLayout />;
+}
+
+function EditorLayout() {
+  const breakpoint = useBreakpoint();
+  if (breakpoint !== "phone") return <Workspace breakpoint={breakpoint} />;
+
   return (
     <>
-      <div className="hidden h-dvh flex-col overflow-hidden bg-white lg:flex">
-        <TopBar />
-        <div className="grid min-h-0 flex-1 grid-cols-[80px_300px_minmax(0,1fr)_340px]">
-          <aside className="border-r bg-surface">
-            <ToolRail />
-          </aside>
-          <aside className="min-h-0 overflow-y-auto border-r">
-            <ToolPanel />
-          </aside>
-          <main className="flex min-h-0 flex-col bg-surface/50 px-8 pt-6 pb-5">
-            <div className="min-h-0 flex-1">
-              <Preview />
-            </div>
-            <div className="mx-auto mt-4 w-full max-w-[720px]">
-              <PromptBar />
-            </div>
-          </main>
-          <aside className="min-h-0 border-l">
-            <Transcript />
-          </aside>
-        </div>
-        <div className="h-[168px] shrink-0 border-t bg-white">
-          <Timeline />
-        </div>
-      </div>
-
-      <div className="flex min-h-dvh flex-col items-center justify-center px-8 text-center lg:hidden">
+      <div className="flex min-h-dvh flex-col items-center justify-center px-8 text-center">
         <Monitor className="size-10 text-ink-2" strokeWidth={1.5} />
         <h1 className="mt-6 text-2xl font-semibold tracking-[-0.02em]">The editor needs a bigger screen</h1>
         <p className="mt-3 max-w-sm text-muted-foreground">
-          Open this page on a laptop or desktop to edit your video. A simpler phone editor is on the way.
+          Open this page on a tablet, laptop or desktop to edit your video. A simpler phone editor is on the way.
         </p>
         <Link href="/" className="mt-8 inline-flex h-11 items-center rounded-full bg-ink px-6 text-[15px] font-medium text-white">
           Back to home

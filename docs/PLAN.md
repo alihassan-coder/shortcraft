@@ -17,6 +17,7 @@ Agreed with the owner on 2026-10-24. This is the source of truth for what we bui
 | Data until backend exists | Mock edit-plan JSON + owner's own 20–40s talking video |
 | Editor | Runs 100% in the browser, nothing to install. Full editor on laptop/desktop; simple phone editor in a later part |
 | AI | Multi-agent: specialist agents build the first edit, a Director agent handles chat edits. UI shows agents working live |
+| Storage | **Supabase** for Postgres + auth, **Cloudflare R2** for video files (10 GB free, free egress, S3 API). Cloud is used in local dev too (keys in `backend/.env`). Browser uploads go straight to R2 via presigned (multipart) URLs. A 720p H.264 preview copy is made after upload because phone HEVC/.mov often won't play in Chrome. Decided 2026-10-24 |
 | Core idea | AI writes an **edit plan (JSON)**, never a video. Remotion Player previews it live; MP4 rendered only on Export |
 
 ## 2. Tools

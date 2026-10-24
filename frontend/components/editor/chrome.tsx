@@ -21,6 +21,7 @@ import { LogoMark } from "@/components/brand/logo";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatTime } from "@/lib/edit-plan/timeline";
+import { revealPanel } from "@/lib/editor/layout";
 import { dispatch, redo, undo, usePlanStore, useTimeline, useUiStore, type Tool } from "@/lib/editor/store";
 import { cn } from "@/lib/utils";
 
@@ -35,26 +36,38 @@ const TOOLS: { id: Tool; label: string; icon: LucideIcon; key: string }[] = [
 
 export const TOOL_KEYS = Object.fromEntries(TOOLS.map((t) => [t.key, t.id])) as Record<string, Tool>;
 
-export function ToolRail() {
+export function ToolRail({ orientation = "vertical" }: { orientation?: "vertical" | "horizontal" }) {
   const { tool, setTool } = useUiStore();
+  const horizontal = orientation === "horizontal";
   return (
-    <nav className="flex flex-col items-center gap-1 py-3" aria-label="Tools">
+    <nav
+      className={cn(
+        "flex gap-1",
+        horizontal ? "overflow-x-auto px-3 py-2 [scrollbar-width:none]" : "flex-col items-center py-3",
+      )}
+      aria-label="Tools"
+    >
       {TOOLS.map(({ id, label, icon: Icon, key }) => (
         <Tooltip key={id}>
           <TooltipTrigger asChild>
             <button
-              onClick={() => setTool(id)}
+              onClick={() => {
+                setTool(id);
+                // Picking a tool (or the active one again) always brings its panel back.
+                revealPanel("tools");
+              }}
               aria-pressed={tool === id}
               className={cn(
-                "flex w-16 flex-col items-center gap-1 rounded-xl py-2.5 text-[11px] transition-colors",
+                "flex shrink-0 items-center rounded-xl text-[11px] transition-colors",
+                horizontal ? "h-9 gap-1.5 px-3 text-[13px]" : "w-16 flex-col gap-1 py-2.5",
                 tool === id ? "bg-white text-ink shadow-sm" : "text-ink-2 hover:bg-white/60 hover:text-ink",
               )}
             >
-              <Icon className="size-[18px]" strokeWidth={1.75} />
+              <Icon className={horizontal ? "size-4" : "size-[18px]"} strokeWidth={1.75} />
               {label}
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right">
+          <TooltipContent side={horizontal ? "bottom" : "right"}>
             {label} <kbd className="ml-1 font-mono opacity-60">{key}</kbd>
           </TooltipContent>
         </Tooltip>
@@ -194,6 +207,9 @@ const SHORTCUTS = [
   ["Delete", "Cut or restore selected word"],
   ["H", "Highlight selected word"],
   ["1 – 6", "Switch tool"],
+  ["[", "Show / hide tool panel"],
+  ["]", "Show / hide transcript"],
+  ["\\", "Show / hide timeline"],
   ["Ctrl + Z", "Undo"],
   ["Ctrl + Shift + Z", "Redo"],
 ];

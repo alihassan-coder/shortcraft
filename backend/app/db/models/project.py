@@ -15,6 +15,8 @@ class Project(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(200))
+    # Supabase auth user id (JWT "sub"). Nullable while anonymous use is allowed.
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, index=True)
 
     sources: Mapped[list[Source]] = relationship(
         back_populates="project", cascade="all, delete-orphan", passive_deletes=True

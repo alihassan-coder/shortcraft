@@ -6,6 +6,7 @@ import { cutForWord, isCutActive, isWordCut } from "@/lib/edit-plan/timeline";
 import { playerControls } from "@/lib/editor/player";
 import { dispatch, usePlanStore, useTimeline, useUiStore } from "@/lib/editor/store";
 import { cn } from "@/lib/utils";
+import { PanelHeader } from "./controls";
 
 const EMOJIS = ["🔥", "👀", "💡", "⏱️", "📱", "🚀", "✅", "❌", "😂", "❤️", "💰", "🎯"];
 
@@ -40,10 +41,7 @@ export function Transcript() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b px-5 py-4">
-        <h2 className="text-[15px] font-semibold">Transcript</h2>
-        <p className="text-[13px] text-muted-foreground">Click a word to select it. Delete to cut.</p>
-      </div>
+      <PanelHeader title="Transcript" description="Click a word to select it. Delete to cut." />
 
       {selected && (
         <WordActions

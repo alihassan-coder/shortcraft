@@ -1,4 +1,8 @@
-"""Alembic environment (async). The database URL comes from app settings (DATABASE_URL)."""
+"""Alembic environment (async).
+
+URL: DATABASE_URL_MIGRATIONS if set, else DATABASE_URL (same settings as the app). For
+Supabase use the direct or session-pooler connection for migrations.
+"""
 
 import asyncio
 from logging.config import fileConfig
@@ -16,7 +20,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
-database_url = get_settings().database_url
+database_url = get_settings().migrations_database_url
 
 
 def _configure(**kwargs: object) -> None:

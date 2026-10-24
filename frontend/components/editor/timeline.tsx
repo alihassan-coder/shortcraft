@@ -38,7 +38,7 @@ export function Timeline() {
 
   return (
     <div className="flex h-full flex-col px-5 py-3 select-none">
-      <div className="grid min-h-0 flex-1 grid-cols-[72px_1fr] gap-x-3">
+      <div className="grid min-h-0 grid-cols-[72px_1fr] gap-x-3">
         <div className="space-y-2 pt-6 text-[11px] text-muted-foreground">
           <p className="h-8 leading-8">Video</p>
           <p className="h-5 leading-5">Captions</p>

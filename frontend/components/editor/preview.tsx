@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { Pause, Play, SkipBack } from "lucide-react";
 import { formatTime } from "@/lib/edit-plan/timeline";
@@ -17,6 +17,8 @@ export function Preview() {
   const durationInFrames = planDurationInFrames(plan, original);
   const totalMs = useTimeline().durationMs;
   const inputProps = useMemo(() => ({ plan, original }), [plan, original]);
+  const box = useRef<HTMLDivElement>(null);
+  const frame = useFitSize(box, width, height);
 
   const attach = useCallback(
     (node: PlayerRef | null) => {
@@ -46,11 +48,11 @@ export function Preview() {
 
   return (
     <div className="flex h-full min-h-0 flex-col items-center gap-4">
-      <div className="relative min-h-0 w-full flex-1">
+      <div ref={box} className="relative min-h-0 w-full flex-1">
         <div className="absolute inset-0 flex items-center justify-center">
           <div
-            className="relative max-h-full max-w-full overflow-hidden rounded-[18px] bg-black shadow-frame"
-            style={{ aspectRatio: `${width} / ${height}`, height: width >= height ? "auto" : "100%", width: width >= height ? "100%" : "auto" }}
+            className="relative overflow-hidden rounded-[18px] bg-black shadow-frame"
+            style={frame ? { width: frame.w, height: frame.h } : { visibility: "hidden" }}
           >
             <Player
               ref={attach}
@@ -115,6 +117,27 @@ export function Preview() {
       </div>
     </div>
   );
+}
+
+/** Largest width × height with the canvas aspect ratio that fits inside the element. */
+function useFitSize(ref: React.RefObject<HTMLDivElement | null>, width: number, height: number) {
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const { width: bw, height: bh } = el.getBoundingClientRect();
+      if (bw <= 0 || bh <= 0) return setSize(null);
+      const scale = Math.min(bw / width, bh / height);
+      const next = { w: Math.floor(width * scale), h: Math.floor(height * scale) };
+      setSize((prev) => (prev && prev.w === next.w && prev.h === next.h ? prev : next));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref, width, height]);
+  return size;
 }
 
 // Areas covered by TikTok/Reels UI: top bar, right action column, bottom caption area.

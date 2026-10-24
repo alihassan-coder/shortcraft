@@ -52,7 +52,7 @@ npm run dev
 cd backend
 uv sync
 uv run alembic upgrade head
-uv run fastapi dev app/main.py
+uv run uvicorn app.main:app --reload
 ```
 
 Copy `.env.example` to `.env` in `backend/` (and in `frontend/`, if one exists) before running.
@@ -63,7 +63,10 @@ Copy `.env.example` to `.env` in `backend/` (and in `frontend/`, if one exists) 
 - [Brand system](docs/BRAND.md)
 - [Editor plan](docs/EDITOR_PLAN.md)
 - [Backend](docs/BACKEND.md)
+- [AI plan](docs/AI_PLAN.md)
 
 ## License
 
-All rights reserved. Not yet licensed for reuse.
+[MIT](LICENSE)
+
+Demo footage and music in `frontend/public/media` come from [Mixkit](https://mixkit.co) under the Mixkit free license, not MIT.

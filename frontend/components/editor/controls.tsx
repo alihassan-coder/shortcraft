@@ -1,14 +1,22 @@
 "use client";
 
+import { createContext, useContext } from "react";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
+/** Extra control shown at the right of every panel header (the layout puts its collapse button here). */
+export const PanelHeaderAction = createContext<React.ReactNode>(null);
+
 export function PanelHeader({ title, description }: { title: string; description?: string }) {
+  const action = useContext(PanelHeaderAction);
   return (
-    <div className="border-b px-5 py-4">
-      <h2 className="text-[15px] font-semibold">{title}</h2>
-      {description && <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">{description}</p>}
+    <div className="flex items-start gap-2 border-b px-5 py-4">
+      <div className="min-w-0 flex-1">
+        <h2 className="text-[15px] font-semibold">{title}</h2>
+        {description && <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">{description}</p>}
+      </div>
+      {action && <div className="-mt-1 -mr-2 shrink-0">{action}</div>}
     </div>
   );
 }
