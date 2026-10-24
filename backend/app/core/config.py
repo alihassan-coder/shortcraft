@@ -76,9 +76,22 @@ class Settings(BaseSettings):
     supabase_jwks_url: str | None = None
     supabase_jwt_audience: str = "authenticated"
 
-    # --- Jobs --------------------------------------------------------------------------
-    job_queue_backend: Literal["inprocess"] = "inprocess"
-    redis_url: str = "redis://localhost:6379/0"
+    # --- Jobs / worker -----------------------------------------------------------------
+    # auto = arq when REDIS_URL is set, else in-process (asyncio tasks inside the API).
+    job_queue_backend: Literal["auto", "inprocess", "arq"] = "auto"
+    redis_url: str | None = None
+    # Jobs run at the same time per process (in-process queue and arq worker).
+    worker_concurrency: int = Field(default=2, ge=1, le=64)
+    # Upper bound for one job (arq kills it after this).
+    job_timeout_seconds: int = Field(default=3600, gt=0)
+    # Enqueue a `proxy` job automatically when an upload completes.
+    proxy_on_upload: bool = True
+
+    # --- Media (ffmpeg) -----------------------------------------------------------------
+    ffmpeg_path: str = "ffmpeg"
+    ffprobe_path: str = "ffprobe"
+    # Scratch space for media jobs. Empty = the system temp dir.
+    work_dir: Path | None = None
 
     # --- AI / third-party (unused until agents/transcription land) ---------------------
     # AI provider is OpenAI only (LangChain + LangGraph).
@@ -96,6 +109,12 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @property
+    def use_arq(self) -> bool:
+        if self.job_queue_backend == "auto":
+            return bool(self.redis_url)
+        return self.job_queue_backend == "arq"
 
     @property
     def migrations_database_url(self) -> str:
