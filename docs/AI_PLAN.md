@@ -91,6 +91,24 @@ That output is exactly what the mock Director in the editor returns today (`lib/
 - **Keys:** `OPENAI_API_KEY`.
 - **Tracing:** LangSmith is optional, for debugging agent runs (`LANGSMITH_API_KEY`).
 
+> **Status (2026-10-24): built, offline-tested (A3 + backend half of A4).** Code in
+> `backend/app/ai/`; details in [BACKEND.md](BACKEND.md) section 4b.
+> - Graph as above. The Director is an LLM review (drop proposals, pick the hook) followed by
+>   code rules (no zoom over a cut, no highlight on a cut word, caps), then `validate`
+>   (schema, ids, clamping, >= 60% of speech kept, plan still valid).
+> - Specialists answer with small strict Structured Outputs schemas that use word numbers;
+>   code turns them into `EditCommand`s, so the model never writes ids or times by hand.
+> - Plan job `mode: "ai"` applies the commands in Python (`apply_ai_commands`, a port of
+>   `applyEdit` for the subset) and falls back to the basic edit with a job warning when
+>   OpenAI is unavailable or fails.
+> - `POST /projects/{pid}/plan/edit` (+ `/stream`, SSE) returns
+>   `{ok, commands, changes, message?}` without saving, the same shape as `mock-director.ts`.
+> - Default models, from developers.openai.com/api/docs/models + /pricing (read 2026-10-24):
+>   **gpt-6.1-sol** ($2 / $10 per 1M tokens in/out) for Director, Cut, Zoom and prompt edits;
+>   **gpt-6-luna** ($0.10 / $0.50) for Caption, Hook and Music. **gpt-6-astra** ($10 / $50)
+>   can be set per role with `AGENT_MODEL_<ROLE>`. Settings only; to be tuned with evals.
+> - **Not verified:** no real OpenAI call has been made yet (no key); tests use fake models.
+
 ### Reference only (not used): Claude notes
 - **SDK:** the official `anthropic` Python SDK in FastAPI background jobs.
 - **Output format:** **structured outputs** (`output_config.format` with a JSON schema generated from the `EditCommand` schema), so the response always parses. Pydantic validates it again before use.
@@ -163,8 +181,8 @@ Other costs per 1-minute video (approximate, not verified today):
 | A1 | Worker (arq + Redis) + ffmpeg proxy/audio jobs | Backend R2 storage (in progress) |
 | A2 | Transcription job (Deepgram) → words in `sources[].words` | A1 |
 | A3 | Silence (silero-vad) + filler cuts → first plan with **no LLM** | A2 |
-| A4 | LangGraph specialists + Director (OpenAI by default) → full first edit | A3 |
-| A5 | `/plan/edit` endpoint for "describe a change"; frontend swaps the mock Director for it | A4 |
+| A4 | LangGraph specialists + Director (OpenAI by default) → full first edit (**built, offline-tested**) | A3 |
+| A5 | `/plan/edit` endpoint for "describe a change" (**backend built**); frontend swaps the mock Director for it | A4 |
 | A6 | Face tracking (zoom focus), DeepFilterNet voice, music beats | A3 |
 | A7 | Render worker (Remotion) → MP4 to R2 | A1 |
 | A8 | Golden set + evals; per-agent model and effort tuning | A4 |

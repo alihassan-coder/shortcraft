@@ -32,8 +32,9 @@ back to SQLite + local disk automatically.
                                                          or `arq app.worker.main...`
                                                          -> handlers: proxy (ffmpeg, media/),
                                                             transcribe (Deepgram | fake),
-                                                            plan (basic, no AI)
-                                                         later: agents, Remotion
+                                                            plan (basic, or ai: LangGraph
+                                                            agents -> OpenAI, app/ai/)
+                                                         later: Remotion
 ```
 
 Jobs: the API creates a `jobs` row and enqueues only its id. `run_job` (same code in both
@@ -45,7 +46,7 @@ handler yet and stays `queued`.
 Chaining: the job context carries the queue's `enqueue`, so a handler can start the next job
 (`worker/chain.py` creates the row and enqueues it; a chaining failure never fails the parent).
 `proxy` succeeded + audio + `TRANSCRIBE_ON_UPLOAD` -> `transcribe`; `transcribe` succeeded +
-`AUTO_PLAN` -> `plan` `{"mode": "basic", "vibe": ...}`. In-process the context points at the
+`AUTO_PLAN` -> `plan` `{"mode": "ai" (AI_PLAN_ENABLED) or "basic", "vibe": ...}`. In-process the context points at the
 same in-process queue; the arq worker uses arq's own Redis pool.
 
 Shared resources (engine, sessionmaker, storage, job queue, token verifier, settings) are built
@@ -65,7 +66,7 @@ backend/
     core/logging.py
     api/deps.py             SessionDep, StorageDep, JobQueueDep, SettingsDep, CurrentUserDep
     api/v1/router.py        mounts everything under /api/v1
-    api/v1/routes/          health, projects, plans, uploads, jobs
+    api/v1/routes/          health, projects, plans, plan_edit ("describe a change"), uploads, jobs
     db/base.py              Base (naming conventions), JSON->JSONB on Postgres, UTC datetimes
     db/session.py           async engine factory (asyncpg | aiosqlite), Supabase pooler/SSL args
     db/models/              Project, Source, EditPlanRecord, Job
@@ -77,6 +78,10 @@ backend/
     transcription/          TranscriptionProvider interface, DeepgramProvider (httpx REST),
                             FakeProvider (fixtures/fake_script.json), build_provider(settings)
     planning/basic.py       build_basic_plan(): pure non-AI first edit -> EditPlan v2 dict
+    ai/                     LangGraph agents (section 4b): commands.py (EditCommand subset,
+                            Pydantic), context.py (plan + transcript text), models.py
+                            (init_chat_model per role), agents/*.py + prompts/*.md, graph.py,
+                            rules.py (validate), apply.py (apply_ai_commands), ratelimit.py
     worker/runner.py        run_job: job lifecycle + handler registry
     worker/proxy.py         the proxy pipeline (download -> ffmpeg steps -> upload -> Source)
     worker/transcribe.py    audio-16k.wav -> provider -> transcript.json + Source.transcript_*
@@ -103,6 +108,8 @@ backend/
 | GET / PATCH / DELETE | `/api/v1/projects/{id}` | PATCH `{title}`; DELETE also removes stored files |
 | GET | `/api/v1/projects/{id}/plan` | `{revision, updated_at, plan}` + `ETag: "<revision>"`. Media in `sources[].src` / `poster` may be **storage keys** (`projects/{pid}/sources/{sid}/proxy-720p.mp4`, written by the plan job) |
 | GET | `/api/v1/projects/{id}/plan/resolved` | Same body + `expires_in`, with this project's storage keys in `sources[].src` / `poster` replaced by playable URLs (R2 presigned GET, or the local file route). **For playback only**: keep saving the plan from `GET /plan` (keys never expire). Other `src` values are left as they are |
+| POST | `/api/v1/projects/{id}/plan/edit` | "Describe a change". Body `{request: str (1-2000 chars), plan_revision: int}` -> `{ok, commands: EditCommand[], changes: string[], message?, dropped}`. **Saves nothing**: the editor applies `commands` with its own `applyEdit` (so undo works), then saves with PUT /plan. 422 bad body, 404 no plan, 412 `plan_revision` is not the current revision, 429 `rate_limited` (per project, `Retry-After`), 503 `ai_unavailable` (no OpenAI key), 502 `ai_error` (model call failed). `ok: false` + `message` when the request can't become an edit |
+| POST | `/api/v1/projects/{id}/plan/edit/stream` | Same, as Server-Sent Events: `event: progress` `{node, status: started/done/failed, detail?}` per graph node, then one `event: result` (the body above) or `event: error` `{code, message}`. Errors before the AI runs are normal JSON responses |
 | PUT | `/api/v1/projects/{id}/plan` | body = EditPlan v2. First PUT creates (rev 1). Later PUTs need `If-Match: "<rev>"`: missing -> 428, stale -> 412 |
 | POST | `/api/v1/projects/{id}/uploads` | `{filename, content_type, size_bytes}` -> `{source, upload}` (shapes below). Types: `video/mp4`, `video/quicktime`, `video/webm`, `video/x-matroska`; max `MAX_UPLOAD_BYTES` (2 GiB) -> else 422 / 413 |
 | PUT | `/api/v1/projects/{id}/sources/{sid}/content` | local storage only: raw body, streamed to disk, capped at declared size |
@@ -112,7 +119,7 @@ backend/
 | GET | `/api/v1/projects/{id}/sources/{sid}/content` | local storage only: serves the video (Range supported) |
 | GET | `/api/v1/projects/{id}/sources/{sid}` | source + metadata (`width`, `height` upright, `duration_ms`, `fps`, `video_codec`, `audio_codec`, `transcript_language`, `transcript_word_count`), `urls: {original, proxy, audio, sprite, sprite_index, peaks, transcript}` (each `{url, expires_in}` or null) and `proxy_job` (latest, same shape as a job) |
 | GET | `/api/v1/projects/{id}/sources/{sid}/files/{artifact}` | local storage only: serves `proxy-720p.mp4`, `audio-16k.wav`, `sprite.jpg`, `sprite.json`, `peaks.json`, `transcript.json` |
-| POST | `/api/v1/projects/{id}/jobs` | `{kind, source_id?, params?}` -> 202, status `queued`. `proxy` and `transcribe` (params `{language?, vibe?}`) need `source_id`. `plan` needs `source_id` and takes `{"mode": "basic", "vibe": "energetic" or "clean" or "story"}` (bad mode/vibe -> 422 `invalid_params`). `render` has no worker yet |
+| POST | `/api/v1/projects/{id}/jobs` | `{kind, source_id?, params?}` -> 202, status `queued`. `proxy` and `transcribe` (params `{language?, vibe?}`) need `source_id`. `plan` needs `source_id` and takes `{"mode": "basic" or "ai", "vibe": "energetic" or "clean" or "story"}` (bad mode/vibe -> 422 `invalid_params`). `render` has no worker yet |
 | GET | `/api/v1/projects/{id}/jobs/{jid}` | `{id, kind, source_id, params, status, progress (0-100), error, result, started_at, finished_at, ...}`. A `proxy` result has `transcribe_job_id`, a `transcribe` result has `plan_job_id` (null when not chained) |
 
 Interactive docs: `http://localhost:8000/docs`. Every error, including validation errors and
@@ -206,6 +213,67 @@ kept). Rules:
 - **Music**: summer-fun / just-chill / a-new-life by vibe, volume 0.45, ducking to 0.25.
 - **Canvas** 1080x1920 9:16 30 fps blur; one clip over the whole source; `src` = the proxy's
   storage key (see `GET /plan/resolved`).
+
+### 4b. AI agents (mode `ai`, and "describe a change")
+
+OpenAI only, through LangChain (`init_chat_model("openai:<model>")`, `langchain-openai`) and
+LangGraph. Versions in `pyproject.toml`: `langgraph` 1.2, `langchain` 1.4 (for
+`init_chat_model`), `langchain-core` 1.7, `langchain-openai` 1.7. Docs read 2026-10-24:
+docs.langchain.com/oss/python/langgraph/use-graph-api and /streaming, /langchain/models,
+/integrations/chat/openai, reference.langchain.com (ChatOpenAI.with_structured_output),
+developers.openai.com/api/docs/models and /pricing.
+
+Plan job, mode `ai` (`worker/plan.py`): the basic plan above -> graph -> validated commands ->
+`apply_ai_commands` (Python port of `applyEdit` for the subset) -> `EditPlan` validation ->
+next revision. No key, a graph error/timeout, no commands, or an invalid result -> the basic
+plan is saved and `result.warnings` says why (the job still succeeds). `result.mode_used` is
+`ai` or `basic`; `result.ai` has `{commands, changes, dropped, failed_agents, rationales}`.
+
+```
+START -> prepare_context -> cut | caption | zoom | hook | music   (parallel fan-out)
+      -> director (LLM review + code merge) -> validate -> END
+START -> summarize_plan -> edit_director -> validate -> END        (POST /plan/edit)
+```
+
+- **Context** (`ai/context.py`): deterministic text, same plan -> same bytes. Plan summary
+  (cuts with ids/state, captions, highlights, zooms, music, hook) + transcript, one word per
+  line `[i] text (start-end)` with flags F filler, X cut, H highlighted, E emoji; blank line
+  between sentences; `-- pause N ms --`. Message order is shared preamble -> context ->
+  agent task (-> user request), so the long prefix is the same for every call (OpenAI
+  automatic prompt caching).
+- **Specialists** (`ai/agents/*.py`, prompts in `ai/prompts/*.md`) answer with small strict
+  Structured Outputs schemas that use word numbers (no ids, no times); code turns them into
+  commands: Cut -> `cutRange` for retakes; Caption -> preset + `toggleHighlight` / `setEmoji`;
+  Zoom -> `addZoom` (scale clamped 1.05-1.4, 0.6-4 s, focus 0.5/0.33); Hook -> 3 options of
+  <= 8 words -> `setHook`; Music -> one of summer-fun, just-chill, forest-walk, epic-drums,
+  a-new-life -> `setMusic` (volume 0.2-0.7). A failing specialist only loses its part.
+- **Director**: an LLM review (`drop` proposal ids, pick the hook option), then code rules that
+  always run: cuts first; no zoom overlapping a cut, zooms don't overlap and start >= 3 s
+  apart, at most one per 5 s of video (max 12); no highlight/emoji on a cut word; at most one
+  highlight per 4 kept words and one emoji per 20; the AI highlight set and zooms *replace*
+  the basic ones (toggles / removeZoom), only when that agent succeeded.
+- **Validate** (`ai/rules.py`, both graphs): resolve `#12` -> word id and `S0` -> source id;
+  parse with the Pydantic `AgentCommand` union (`ai/commands.py`, camelCase like TS, unknown
+  keys rejected); ids/presets/tracks must exist; clamp times to the source; drop duplicates;
+  keep >= 60% of spoken (non-filler) word time, dropping cut commands from the end; the plan
+  after all commands must validate. Every drop is reported with a reason.
+- **Edit director** ("describe a change"): one call whose output schema is the whole command
+  subset (non-strict JSON schema, so one bad command is dropped instead of failing the reply).
+  `changes` are the model's own lines when nothing was dropped, else rebuilt from the
+  commands.
+- **Command subset** the AI may emit: setTitle, setVibe, setCanvas, setCutRules,
+  toggleRestoreCut, removeCut, cutRange, toggleWordCut, setWordText, setCaptions,
+  toggleHighlight, setEmoji, setZoomsEnabled, addZoom, updateZoom, updateAllZooms, removeZoom,
+  setProgressBar, setMusic, setVoice, setHook. Not: clip, track and item commands.
+  `apply_ai_commands` supports all of them except setCanvas / setProgressBar (skipped and
+  reported; the plan job never emits them).
+- **Models** (`ai/models.py`): `AgentModels.get_chat_model(role)` ->
+  `init_chat_model("openai:" + (AGENT_MODEL_<ROLE> or OPENAI_MODEL_DEFAULT), timeout,
+  max_retries)`; `structured()` = `with_structured_output(schema, method="json_schema",
+  strict=...)` plus `.with_fallbacks([...])` on `AGENT_MODEL_FALLBACK`. Tests inject fakes
+  through `create_app(settings, agent_models=...)` / `JobContext.agent_models`.
+- **Tracing**: `LANGSMITH_TRACING=true` + `LANGSMITH_API_KEY` are copied into the process
+  environment at startup (API lifespan and worker), where LangChain reads them.
 boto3 network calls run in a worker thread; presigning is local.
 
 ## 5. The edit plan contract
@@ -272,8 +340,15 @@ All optional; see `backend/.env.example` for the full annotated list.
 | `PROXY_ON_UPLOAD` | `true` | enqueue a `proxy` job when an upload completes |
 | `FFMPEG_PATH`, `FFPROBE_PATH` | `ffmpeg`, `ffprobe` | binary names on PATH or full paths |
 | `WORK_DIR` | system temp | scratch dir for media jobs |
-| `OPENAI_API_KEY`, `OPENAI_MODEL_DEFAULT` | unset | AI agents later (OpenAI only, via LangChain + LangGraph) |
-| `LANGSMITH_API_KEY`, `LANGSMITH_TRACING` | unset, `false` | optional agent tracing |
+| `OPENAI_API_KEY` | unset | AI agents (OpenAI only, via LangChain + LangGraph); never logged |
+| `OPENAI_MODEL_DEFAULT` | `gpt-6.1-sol` | model for roles without their own setting |
+| `AGENT_MODEL_DIRECTOR`, `_CUT`, `_ZOOM`, `_EDIT` | = `OPENAI_MODEL_DEFAULT` | judgment-heavy roles |
+| `AGENT_MODEL_CAPTION`, `_HOOK`, `_MUSIC` | `gpt-6-luna` | small, cheap roles |
+| `AGENT_MODEL_FALLBACK` | unset | second model when a call fails |
+| `AI_PLAN_ENABLED` | `true` | chained plan jobs use mode `ai` |
+| `AI_TIMEOUT_SECONDS`, `AI_MAX_RETRIES` | `60`, `2` | per model call |
+| `AI_EDIT_BURST`, `AI_EDIT_PER_MINUTE` | `5`, `10` | `/plan/edit` token bucket per project (in memory) |
+| `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_ENDPOINT` | `false`, unset | optional agent tracing |
 | `DEEPGRAM_API_KEY` | unset | Deepgram key (never logged or returned) |
 | `TRANSCRIPTION_PROVIDER` | `auto` | `auto` = Deepgram with a key, else the offline fake; or `deepgram` / `fake` |
 | `DEEPGRAM_MODEL` | `nova-3` | Deepgram pre-recorded model |
@@ -300,6 +375,7 @@ uv run python -m scripts.check_storage   # with R2 keys in .env
 uv run uvicorn app.main:app --reload --port 8000
 uv run arq app.worker.main.WorkerSettings  # only when REDIS_URL is set
 uv run pytest                              # -m unit | integration | ffmpeg
+RUN_LIVE_AI=1 OPENAI_API_KEY=sk-... uv run pytest -m live_openai -s   # one real OpenAI run
 uv run ruff check . && uv run ruff format --check .
 ```
 
@@ -314,6 +390,9 @@ Optional Postgres + Redis: `docker compose up -d` in `backend/`, then set
 
 Stubbed:
 
+- **AI agents** have never called the real OpenAI API (no key here). Model ids come from
+  OpenAI's docs; schemas were checked offline with the OpenAI SDK's strict-schema converter.
+  The `/plan/edit` rate limit is per process (in memory).
 - **`render`** has no handler yet and stays `queued`. No progress stream yet: clients poll
   `GET .../jobs/{id}` or `GET .../sources/{sid}`.
 - **Deepgram** is tested only against a hand-written response fixture and a mocked transport;
@@ -335,8 +414,9 @@ Next steps, roughly in order:
 3. **Worker image**: a container with ffmpeg + the arq worker for deployment.
 4. **Bucket hygiene**: R2 lifecycle rule to abort incomplete multipart uploads after 1 day.
 5. **Transcription**: done (A1, A2). Next: try a real Deepgram key; self-hosted Whisper later.
-6. **Agents** (OpenAI via LangChain + LangGraph): Director + specialists (cut, caption, zoom, music, hook) in the `plan`
-   job, each writing its part of the plan, validated by `EditPlan` before saving.
+6. **Agents**: built (section 4b), tested with fake models only. Next: one live run
+   (`-m live_openai`), then the golden set + evals to tune prompts and per-role models; a
+   Redis rate limiter when the API runs on several processes; face focus for zooms.
 7. **Render**: Remotion render worker (or Lambda) for the `render` job, output to
    `projects/{pid}/renders/{job_id}.mp4`, download URL in `result`.
 8. **Contract sync**: JSON Schema generated from Zod, checked in CI against the Pydantic models.
