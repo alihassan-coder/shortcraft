@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.ai.models import AgentModels
 from app.core.config import Settings
 from app.media import MediaTools
 from app.services.storage import StorageAdapter
@@ -24,6 +25,8 @@ class JobContext:
     enqueue: Enqueue | None = None
     # Override the speech-to-text provider (tests); None = built from settings.
     transcriber: TranscriptionProvider | None = None
+    # Override the AI agents' chat models (tests); None = OpenAI models from settings.
+    agent_models: AgentModels | None = None
 
     @property
     def tools(self) -> MediaTools:
@@ -31,6 +34,9 @@ class JobContext:
 
     def transcription_provider(self) -> TranscriptionProvider:
         return self.transcriber or build_provider(self.settings)
+
+    def ai_models(self) -> AgentModels:
+        return self.agent_models or AgentModels(self.settings)
 
 
 Progress = Callable[[int], Awaitable[None]]

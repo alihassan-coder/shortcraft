@@ -13,7 +13,14 @@ export const FONT_FAMILIES: { label: string; value: string }[] = [
   { label: "Comic", value: "'Comic Sans MS', 'Chalkboard SE', cursive" },
 ];
 
-/** CSS color (hex or rgba()) → "#RRGGBB" / "#RRGGBBAA". Unknown formats fall back. */
+const firstFamily = (stack: string) => stack.split(",")[0].trim();
+
+/** The FONT_FAMILIES stack that starts with the same font, so the font picker can show it. */
+export function fontStack(family: string) {
+  return FONT_FAMILIES.find((f) => firstFamily(f.value) === firstFamily(family))?.value ?? family;
+}
+
+/** CSS color (hex or rgba())→ "#RRGGBB" / "#RRGGBBAA". Unknown formats fall back. */
 export function toHexColor(css: string, fallback = "#ffffff"): string {
   const c = css.trim();
   if (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(c)) return c.toLowerCase();
@@ -29,7 +36,7 @@ export function toHexColor(css: string, fallback = "#ffffff"): string {
 export function presetTextStyle(preset: CaptionPreset, size = DEFAULT_TEXT_STYLE.size): TextStyle {
   const style: TextStyle = {
     ...DEFAULT_TEXT_STYLE,
-    fontFamily: preset.fontFamily,
+    fontFamily: fontStack(preset.fontFamily),
     fontWeight: preset.fontWeight,
     size,
     case: preset.uppercase ? "upper" : "none",

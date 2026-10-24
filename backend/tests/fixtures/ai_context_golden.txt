@@ -1,0 +1,99 @@
+# PLAN
+title: 'Hook test'
+vibe: energetic
+canvas: 9:16 1080x1920 30fps
+source S0: id=src-1 duration=20000ms words=55
+
+## CUTS (rules: silence=on filler=on retake=on)
+- filler-w1 S0 500-800ms filler active
+- silence-0 S0 920-1130ms silence active
+- retake-0 S0 1250-2810ms retake active note="You said this line twice. Kept the second take."
+- silence-1 S0 6230-6890ms silence active
+- filler-w20 S0 7010-7370ms filler active
+- silence-2 S0 14400-14860ms silence active
+- silence-3 S0 16680-17640ms silence active
+- filler-w49 S0 17960-18260ms filler active
+- silence-4 S0 18380-18590ms silence active
+
+## CAPTIONS on: preset=bold-pop size=108 positionY=0.68 wordsPerLine=2 emojis=off
+highlights: #10 'videos', #15 'probably', #19 'seconds.', #30 'trick:', #34 'strongest', #38 'captions,', #47 'today.', #52 'videos'
+emojis: (none)
+
+## ZOOMS on
+- zoom-0 S0 300-800ms punch x1.2
+- zoom-1 S0 7570-8570ms punch x1.2
+- zoom-2 S0 14980-15520ms punch x1.2
+
+## MUSIC track=summer-fun volume=0.45 ducking=on duckTo=0.25
+## HOOK on: text="If your videos aren't getting views" options=["If your videos aren't getting views"] durationMs=2600
+## VOICE enhance=off
+
+# TRANSCRIPT
+Format: [i] word (startMs-endMs) flags. Flags: F=filler, X=already cut, H=highlighted, E=emoji. A blank line ends a sentence.
+
+## S0
+[0] So (300-500)
+[1] um, (500-800) FX
+-- pause 450 ms --
+[2] if (1250-1390) X
+[3] your (1390-1550) X
+[4] videos (1550-1850) X
+[5] are (1850-1970) X
+[6] not (1970-2150) X
+[7] getting— (2150-2510) X
+[8] if (2810-2950)
+[9] your (2950-3110)
+[10] videos (3110-3410) H
+[11] aren't (3410-3650)
+[12] getting (3650-3910)
+[13] views, (3910-4330)
+[14] it's (4490-4650)
+[15] probably (4650-4990) H
+[16] the (4990-5090)
+[17] first (5090-5350)
+[18] three (5350-5590)
+[19] seconds. (5590-6110) H
+
+-- pause 900 ms --
+[20] Uh, (7010-7370) FX
+[21] people (7570-7850)
+[22] decide (7850-8170)
+[23] to (8170-8270)
+[24] scroll (8270-8570)
+[25] super (8570-8830)
+[26] fast. (8830-9250)
+
+[27] So (9600-9780)
+[28] here's (9780-10000)
+[29] the (10000-10100)
+[30] trick: (10100-10560) H
+[31] start (10820-11080)
+[32] with (11080-11220)
+[33] your (11220-11380)
+[34] strongest (11380-11780) H
+[35] line, (11780-12140)
+[36] add (12260-12460)
+[37] big (12460-12680)
+[38] captions, (12680-13140) H
+[39] and (13240-13360)
+[40] cut (13360-13580)
+[41] every (13580-13820)
+[42] pause. (13820-14280)
+
+-- pause 700 ms --
+[43] That's (14980-15220)
+[44] it. (15220-15520)
+
+[45] Try (15700-15920)
+[46] it (15920-16040)
+[47] today. (16040-16560) H
+
+-- pause 1200 ms --
+[48] So (17760-17960)
+[49] um, (17960-18260) FX
+-- pause 450 ms --
+[50] if (18710-18850)
+[51] your (18850-19010)
+[52] videos (19010-19310) H
+[53] are (19310-19430)
+[54] not (19430-19610)

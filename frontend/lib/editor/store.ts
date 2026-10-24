@@ -75,8 +75,12 @@ export type AssetTab =
   | "zoom"
   | "hook";
 
-/** What the Inspector shows. `null` means the project itself. */
-export type Selection = { kind: "clip" | "text" | "zoom" | "word"; id: string } | null;
+/**
+ * What the Inspector shows. `null` means the project itself. "item" is a
+ * non-text track item (element, image, sfx); text items use "text".
+ */
+export type Selection = { kind: "clip" | "text" | "item" | "zoom" | "word"; id: string } | null;
+export type Selected = NonNullable<Selection>;
 
 export type PreviewZoom = "fit" | 0.5 | 1;
 export type EditorDialog = "export" | "shortcuts" | "palette" | "feedback" | null;
@@ -95,8 +99,15 @@ type UiState = {
   setSafeZones: (v: boolean) => void;
   previewZoom: PreviewZoom;
   setPreviewZoom: (z: PreviewZoom) => void;
+  /** The primary selection (what the Inspector shows); one of `selected` when anything is selected. */
   selection: Selection;
+  /** Everything selected (timeline multi-select). */
+  selected: Selected[];
   select: (sel: Selection) => void;
+  /** Replace the multi-selection; the first entry becomes the primary one. */
+  setSelected: (list: Selected[]) => void;
+  /** Shift-click: add or remove one entry. */
+  toggleSelected: (sel: Selected) => void;
   selectWord: (id: string | null) => void;
   selectZoom: (id: string | null) => void;
   dialog: EditorDialog;
@@ -121,9 +132,17 @@ export const useUiStore = create<UiState>()((set) => ({
   previewZoom: "fit",
   setPreviewZoom: (previewZoom) => set({ previewZoom }),
   selection: null,
-  select: (selection) => set({ selection }),
-  selectWord: (id) => set({ selection: id ? { kind: "word", id } : null }),
-  selectZoom: (id) => set({ selection: id ? { kind: "zoom", id } : null }),
+  selected: [],
+  select: (selection) => set({ selection, selected: selection ? [selection] : [] }),
+  setSelected: (list) => set({ selected: list, selection: list[0] ?? null }),
+  toggleSelected: (sel) =>
+    set((s) => {
+      const has = s.selected.some((x) => x.kind === sel.kind && x.id === sel.id);
+      const selected = has ? s.selected.filter((x) => !(x.kind === sel.kind && x.id === sel.id)) : [...s.selected, sel];
+      return { selected, selection: has ? (selected[0] ?? null) : s.selection ?? sel };
+    }),
+  selectWord: (id) => set({ selection: id ? { kind: "word", id } : null, selected: id ? [{ kind: "word", id }] : [] }),
+  selectZoom: (id) => set({ selection: id ? { kind: "zoom", id } : null, selected: id ? [{ kind: "zoom", id }] : [] }),
   dialog: null,
   setDialog: (dialog) => set({ dialog }),
   styleClipboard: null,
@@ -138,3 +157,7 @@ export const selectedId = (kind: NonNullable<Selection>["kind"]) => {
   const sel = useUiStore.getState().selection;
   return sel?.kind === kind ? sel.id : null;
 };
+
+/** True if this entry is part of the (multi-)selection. */
+export const useIsSelected = (kind: Selected["kind"], id: string) =>
+  useUiStore((s) => s.selected.some((x) => x.kind === kind && x.id === id));

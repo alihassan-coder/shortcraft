@@ -148,6 +148,12 @@ def make_settings(tmp_path: Path, **overrides: Any) -> Settings:
         "transcription_provider": "fake",
         "deepgram_api_key": None,
         "work_dir": tmp_path / "work",
+        # AI: never a real key or tracing in tests; chained plans stay "basic" unless asked.
+        "openai_api_key": None,
+        "agent_model_fallback": None,
+        "ai_plan_enabled": False,
+        "langsmith_tracing": False,
+        "langsmith_api_key": None,
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)  # type: ignore[call-arg]

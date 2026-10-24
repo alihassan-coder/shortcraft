@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -191,11 +191,17 @@ export function NumberField({
 }) {
   const [draft, setDraft] = useState(String(value));
   const [shown, setShown] = useState(value);
+  // Escape blurs the input, and blur commits; this flag makes that blur a no-op.
+  const cancelled = useRef(false);
   if (shown !== value) {
     setShown(value);
     setDraft(String(value));
   }
   const commit = () => {
+    if (cancelled.current) {
+      cancelled.current = false;
+      return;
+    }
     const n = Number(draft);
     if (!Number.isFinite(n) || draft.trim() === "") return setDraft(String(value));
     const clamped = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n));
@@ -221,6 +227,7 @@ export function NumberField({
           e.stopPropagation();
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           if (e.key === "Escape") {
+            cancelled.current = true;
             setDraft(String(value));
             (e.target as HTMLInputElement).blur();
           }

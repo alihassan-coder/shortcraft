@@ -44,12 +44,12 @@ export const SIZES = {
     inspector: { min: 240, max: 340, default: 264, collapsed: 40 },
   },
   center: { min: 360 },
-  timeline: { min: 120, max: "45%", default: 200, collapsed: 32 },
+  timeline: { min: 120, max: "50%", default: 280, collapsed: 32 },
   main: { min: 280 },
 } as const;
 
 /** Bump when the panel structure changes so old saved sizes are ignored. */
-export const LAYOUT_VERSION = "v3";
+export const LAYOUT_VERSION = "v4";
 
 /** localStorage that never throws (private mode, blocked storage). */
 export const layoutStorage: LayoutStorage = {

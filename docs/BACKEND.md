@@ -30,15 +30,23 @@ back to SQLite + local disk automatically.
    SQLite (no .env / tests)    backend/var/uploads      worker/runner.run_job
    Supabase Postgres (asyncpg) Cloudflare R2 (S3 API)    in the API process (no Redis)
                                                          or `arq app.worker.main...`
-                                                         -> handlers: proxy (ffmpeg, media/)
-                                                         later: Deepgram, agents, Remotion
+                                                         -> handlers: proxy (ffmpeg, media/),
+                                                            transcribe (Deepgram | fake),
+                                                            plan (basic, no AI)
+                                                         later: agents, Remotion
 ```
 
 Jobs: the API creates a `jobs` row and enqueues only its id. `run_job` (same code in both
 queues) sets `running` + `started_at`, calls the handler for the kind with a `progress(0-100)`
 callback, then writes `succeeded` + `result` or `failed` + `error`, and `finished_at`. Finished
-jobs are never re-run; a job left `running` by a crashed worker runs again. Kinds without a
-handler yet (`transcribe`, `plan`, `render`) stay `queued`.
+jobs are never re-run; a job left `running` by a crashed worker runs again. `render` has no
+handler yet and stays `queued`.
+
+Chaining: the job context carries the queue's `enqueue`, so a handler can start the next job
+(`worker/chain.py` creates the row and enqueues it; a chaining failure never fails the parent).
+`proxy` succeeded + audio + `TRANSCRIBE_ON_UPLOAD` -> `transcribe`; `transcribe` succeeded +
+`AUTO_PLAN` -> `plan` `{"mode": "basic", "vibe": ...}`. In-process the context points at the
+same in-process queue; the arq worker uses arq's own Redis pool.
 
 Shared resources (engine, sessionmaker, storage, job queue, token verifier, settings) are built
 once in the `create_app()` lifespan and stored on `app.state`; dependencies in `api/deps.py`
@@ -65,9 +73,15 @@ backend/
     schemas/                project, plan, upload, job request/response models
     services/               projects, plans, uploads, jobs, storage (adapters, keys), job_queue
     media/ffmpeg.py         probe, make_proxy, extract_audio, thumbnail_sprite, waveform_peaks,
-                            loudness (async ffmpeg/ffprobe subprocesses, no shell)
+                            loudness, detect_silences (async ffmpeg/ffprobe subprocesses, no shell)
+    transcription/          TranscriptionProvider interface, DeepgramProvider (httpx REST),
+                            FakeProvider (fixtures/fake_script.json), build_provider(settings)
+    planning/basic.py       build_basic_plan(): pure non-AI first edit -> EditPlan v2 dict
     worker/runner.py        run_job: job lifecycle + handler registry
     worker/proxy.py         the proxy pipeline (download -> ffmpeg steps -> upload -> Source)
+    worker/transcribe.py    audio-16k.wav -> provider -> transcript.json + Source.transcript_*
+    worker/plan.py          transcript + silencedetect -> build_basic_plan -> next plan revision
+    worker/chain.py         enqueue_followup(): start the next job from inside a job
     worker/main.py          arq WorkerSettings (`uv run arq app.worker.main.WorkerSettings`)
   migrations/               Alembic (async env, URL from settings)
   scripts/                  check_db.py, check_storage.py (PASS/FAIL against the real cloud)
@@ -87,7 +101,8 @@ backend/
 | GET | `/api/v1/projects?limit&offset` | newest first |
 | POST | `/api/v1/projects` | `{title}` -> 201. With a valid Supabase token, `owner_id` = user id |
 | GET / PATCH / DELETE | `/api/v1/projects/{id}` | PATCH `{title}`; DELETE also removes stored files |
-| GET | `/api/v1/projects/{id}/plan` | `{revision, updated_at, plan}` + `ETag: "<revision>"` |
+| GET | `/api/v1/projects/{id}/plan` | `{revision, updated_at, plan}` + `ETag: "<revision>"`. Media in `sources[].src` / `poster` may be **storage keys** (`projects/{pid}/sources/{sid}/proxy-720p.mp4`, written by the plan job) |
+| GET | `/api/v1/projects/{id}/plan/resolved` | Same body + `expires_in`, with this project's storage keys in `sources[].src` / `poster` replaced by playable URLs (R2 presigned GET, or the local file route). **For playback only**: keep saving the plan from `GET /plan` (keys never expire). Other `src` values are left as they are |
 | PUT | `/api/v1/projects/{id}/plan` | body = EditPlan v2. First PUT creates (rev 1). Later PUTs need `If-Match: "<rev>"`: missing -> 428, stale -> 412 |
 | POST | `/api/v1/projects/{id}/uploads` | `{filename, content_type, size_bytes}` -> `{source, upload}` (shapes below). Types: `video/mp4`, `video/quicktime`, `video/webm`, `video/x-matroska`; max `MAX_UPLOAD_BYTES` (2 GiB) -> else 422 / 413 |
 | PUT | `/api/v1/projects/{id}/sources/{sid}/content` | local storage only: raw body, streamed to disk, capped at declared size |
@@ -95,10 +110,10 @@ backend/
 | POST | `/api/v1/projects/{id}/sources/{sid}/abort` | cancels a pending upload (aborts multipart, deletes bytes) -> status `aborted`. 409 if already uploaded |
 | GET | `/api/v1/projects/{id}/sources/{sid}/url` | `{url, expires_in}`: R2 presigned GET (1 h) or the local content URL (`expires_in: null`). 404 until uploaded |
 | GET | `/api/v1/projects/{id}/sources/{sid}/content` | local storage only: serves the video (Range supported) |
-| GET | `/api/v1/projects/{id}/sources/{sid}` | source + metadata (`width`, `height` upright, `duration_ms`, `fps`, `video_codec`, `audio_codec`), `urls: {original, proxy, audio, sprite, sprite_index, peaks}` (each `{url, expires_in}` or null) and `proxy_job` (latest, same shape as a job) |
-| GET | `/api/v1/projects/{id}/sources/{sid}/files/{artifact}` | local storage only: serves `proxy-720p.mp4`, `audio-16k.wav`, `sprite.jpg`, `sprite.json`, `peaks.json` |
-| POST | `/api/v1/projects/{id}/jobs` | `{kind, source_id?}`: `proxy` (needs `source_id`), `transcribe`, `plan` or `render` -> 202, status `queued` |
-| GET | `/api/v1/projects/{id}/jobs/{jid}` | `{id, kind, source_id, status, progress (0-100), error, result, started_at, finished_at, ...}` |
+| GET | `/api/v1/projects/{id}/sources/{sid}` | source + metadata (`width`, `height` upright, `duration_ms`, `fps`, `video_codec`, `audio_codec`, `transcript_language`, `transcript_word_count`), `urls: {original, proxy, audio, sprite, sprite_index, peaks, transcript}` (each `{url, expires_in}` or null) and `proxy_job` (latest, same shape as a job) |
+| GET | `/api/v1/projects/{id}/sources/{sid}/files/{artifact}` | local storage only: serves `proxy-720p.mp4`, `audio-16k.wav`, `sprite.jpg`, `sprite.json`, `peaks.json`, `transcript.json` |
+| POST | `/api/v1/projects/{id}/jobs` | `{kind, source_id?, params?}` -> 202, status `queued`. `proxy` and `transcribe` (params `{language?, vibe?}`) need `source_id`. `plan` needs `source_id` and takes `{"mode": "basic", "vibe": "energetic" or "clean" or "story"}` (bad mode/vibe -> 422 `invalid_params`). `render` has no worker yet |
+| GET | `/api/v1/projects/{id}/jobs/{jid}` | `{id, kind, source_id, params, status, progress (0-100), error, result, started_at, finished_at, ...}`. A `proxy` result has `transcribe_job_id`, a `transcribe` result has `plan_job_id` (null when not chained) |
 
 Interactive docs: `http://localhost:8000/docs`. Every error, including validation errors and
 404s for unknown routes, uses `{"error": {"code", "message", "details"?}}`. Auth errors are 401
@@ -143,6 +158,54 @@ audio: `extract_audio` 16 kHz mono s16 WAV [80], `waveform_peaks` 50/s scaled to
 `result.loudness_lufs`) [88] -> upload artifacts [97] -> Source `ready` with metadata and keys
 [100]. Any failure sets the job `failed` with a readable `error` (e.g. `ffprobe failed: ...`;
 unexpected errors as `Internal error (TypeName)`) and the source `failed`; the original is kept. Presigned upload URLs live 3 h, GET URLs 1 h.
+
+Transcribe job (`worker/transcribe.py`): needs `Source.audio_key` (else a clear error: "no audio
+track" / "not ready yet") -> download WAV [10] -> provider [80] -> `transcript.json`
+`{provider, model, language, duration_ms, words: [{text, start_ms, end_ms, confidence,
+filler}]}` uploaded next to the artifacts [95] -> `Source.transcript_key/_language/_word_count`
+-> chain `plan` (AUTO_PLAN). Provider failures fail the job as `Transcription failed: ...`.
+
+- **Deepgram** (`transcription/deepgram.py`): `POST https://api.deepgram.com/v1/listen` with
+  `Authorization: Token <key>`, raw WAV body (`Content-Type: audio/wav`), query
+  `model=nova-3&language=en&punctuate=true&smart_format=true&filler_words=true`. Words come
+  from `results.channels[0].alternatives[0].words` (`punctuated_word` is shown; `start`/`end`
+  seconds -> ms, rounded half up). Docs read 2026-10-24:
+  developers.deepgram.com/reference/speech-to-text/listen-pre-recorded, /docs/filler-words,
+  /docs/models-languages-overview. Not yet called with a real key.
+- **Fillers**: a word is a filler when its bare token is one Deepgram spells as a filler (uh,
+  um, mhmm, mm-mm, uh-uh, uh-huh, nuh-uh) or in the classic set (er, erm, hmm, mm, ah).
+  "like" / "you know" are never marked (not detectable without context).
+- **Fake** (`TRANSCRIPTION_PROVIDER=fake`, or `auto` without a key): lays out a fixed demo
+  script from `transcription/fixtures/fake_script.json` to fit the WAV's length. Deterministic.
+
+Plan job, mode `basic` (`worker/plan.py` + pure `planning/basic.build_basic_plan`): needs the
+proxy + transcript -> ffmpeg `silencedetect` (SILENCE_NOISE_DB / SILENCE_MIN_S) on the WAV ->
+plan -> validated with the Pydantic `EditPlan` (v2 output) -> saved as the next revision with
+the same If-Match rule as the API (current revision; retried if an editor save lands in
+between). It **replaces** the current plan content (as a new revision; older content is not
+kept). Rules:
+
+- **Silence cuts**: ffmpeg silences + word gaps > MIN_PAUSE_MS (also before the first / after
+  the last word), minus every word's range, then CUT_PADDING_MS kept next to speech (none at
+  the very start/end). Cuts shorter than 100 ms after padding are dropped. No words -> no
+  silence cuts.
+- **Filler cuts**: each filler word.
+- **Retake cuts** (no LLM, conservative): a phrase of >= 3 words (fillers ignored) said again
+  within 4 s, where the first attempt was abandoned (it drifts before the restart, at most 4
+  extra words, or ends with a dash/ellipsis). Cut from the first attempt's start to the
+  restart, note "You said this line twice. Kept the second take." Plain repetition ("very
+  very", "I love it, I love it") is kept.
+- **Captions**: preset by vibe (energetic -> bold-pop, clean -> clean, story -> story), size
+  108, positionY 0.68, 2 words per line, no emojis. Highlights: per group of 6 kept words, the
+  longest content word (>= 5 letters, not a stopword), earliest on ties.
+- **Zooms**: at sentence starts after a pause (first word; after `.?!` + pause > MIN_PAUSE_MS;
+  or any pause > 2x that), at most one per 6 s, up to 4 words long. energetic: punch 1.2,
+  clean: smooth 1.1, story: smooth 1.12. Focus 0.5 / 0.33.
+- **Hook**: the first sentence (fillers/retakes skipped, leading "So"/"And" dropped), at most 8
+  words (cut at a comma when longer). One option; disabled when empty.
+- **Music**: summer-fun / just-chill / a-new-life by vibe, volume 0.45, ducking to 0.25.
+- **Canvas** 1080x1920 9:16 30 fps blur; one clip over the whole source; `src` = the proxy's
+  storage key (see `GET /plan/resolved`).
 boto3 network calls run in a worker thread; presigning is local.
 
 ## 5. The edit plan contract
@@ -167,9 +230,9 @@ boto3 network calls run in a worker thread; presigning is local.
 | Table | Key columns |
 |---|---|
 | `projects` | id (uuid), title, owner_id (Supabase user id, nullable, indexed), created_at, updated_at |
-| `sources` | id, project_id (FK, cascade), filename, content_type, size_bytes, storage_key (unique), status `pending`/`uploaded`/`processing`/`ready`/`failed`/`aborted`, upload_id (multipart in progress), width/height (upright)/duration_ms/fps/video_codec/audio_codec and proxy_key/audio_key/sprite_key/sprite_index_key/peaks_key (filled by the proxy job) |
+| `sources` | id, project_id (FK, cascade), filename, content_type, size_bytes, storage_key (unique), status `pending`/`uploaded`/`processing`/`ready`/`failed`/`aborted`, upload_id (multipart in progress), width/height (upright)/duration_ms/fps/video_codec/audio_codec and proxy_key/audio_key/sprite_key/sprite_index_key/peaks_key (filled by the proxy job), transcript_key/transcript_language/transcript_word_count (transcribe job) |
 | `edit_plans` | project_id (PK + FK, one plan per project), schema_version, revision, plan (JSONB on Postgres, JSON on SQLite) |
-| `jobs` | id, project_id (FK), source_id (FK, set null), kind `proxy`/`transcribe`/`plan`/`render`, status `queued`/`running`/`succeeded`/`failed`, progress 0-100, error, result (JSON), started_at, finished_at |
+| `jobs` | id, project_id (FK), source_id (FK, set null), kind `proxy`/`transcribe`/`plan`/`render`, params (JSON, e.g. `{"vibe": "clean"}`), status `queued`/`running`/`succeeded`/`failed`, progress 0-100, error, result (JSON), started_at, finished_at |
 
 `proxy` jobs: phone videos are often HEVC in a `.mov`, which Chrome often cannot play, so after
 upload we make a 720p H.264 MP4 proxy for the editor. Renders use the original.
@@ -211,7 +274,14 @@ All optional; see `backend/.env.example` for the full annotated list.
 | `WORK_DIR` | system temp | scratch dir for media jobs |
 | `OPENAI_API_KEY`, `OPENAI_MODEL_DEFAULT` | unset | AI agents later (OpenAI only, via LangChain + LangGraph) |
 | `LANGSMITH_API_KEY`, `LANGSMITH_TRACING` | unset, `false` | optional agent tracing |
-| `DEEPGRAM_API_KEY` | unset | transcription later |
+| `DEEPGRAM_API_KEY` | unset | Deepgram key (never logged or returned) |
+| `TRANSCRIPTION_PROVIDER` | `auto` | `auto` = Deepgram with a key, else the offline fake; or `deepgram` / `fake` |
+| `DEEPGRAM_MODEL` | `nova-3` | Deepgram pre-recorded model |
+| `TRANSCRIPTION_LANGUAGE`, `DEEPGRAM_TIMEOUT_SECONDS` | `en`, `300` | default language (job params can override), request limit |
+| `TRANSCRIBE_ON_UPLOAD` | `true` | enqueue `transcribe` after a successful proxy job (video has audio) |
+| `AUTO_PLAN` | `true` | enqueue a basic `plan` after a successful transcribe job |
+| `SILENCE_NOISE_DB`, `SILENCE_MIN_S` | `-35`, `0.35` | ffmpeg silencedetect noise floor and minimum length |
+| `MIN_PAUSE_MS`, `CUT_PADDING_MS` | `400`, `120` | word gaps cut as silence; air kept next to speech |
 
 Postgres URL handling (`db/session.py`): `postgresql://` / `postgres://` become
 `postgresql+asyncpg://`; libpq `sslmode=` becomes asyncpg `ssl=`; Supabase hosts get
@@ -244,8 +314,13 @@ Optional Postgres + Redis: `docker compose up -d` in `backend/`, then set
 
 Stubbed:
 
-- **Jobs other than `proxy`** (`transcribe`, `plan`, `render`) have no handler yet and stay
-  `queued`. No progress stream yet: clients poll `GET .../jobs/{id}` or `GET .../sources/{sid}`.
+- **`render`** has no handler yet and stays `queued`. No progress stream yet: clients poll
+  `GET .../jobs/{id}` or `GET .../sources/{sid}`.
+- **Deepgram** is tested only against a hand-written response fixture and a mocked transport;
+  a real call needs `DEEPGRAM_API_KEY`. Without a key, `auto` uses the fake provider (demo
+  words, not real speech).
+- **Plan jobs overwrite** the current plan content (as a new revision). The editor should
+  reload after a plan job, and should not start one over user edits without asking.
 - **Auth is optional**: `get_current_user` verifies `Authorization: Bearer <supabase jwt>`
   (HS256 legacy secret, or RS256/ES256 via JWKS; checks `aud`, `iss`, `exp`, `sub`). New
   projects get `owner_id` from the token. Nothing is scoped by owner yet, and anonymous calls
@@ -259,7 +334,7 @@ Next steps, roughly in order:
    backoff for transient storage errors.
 3. **Worker image**: a container with ffmpeg + the arq worker for deployment.
 4. **Bucket hygiene**: R2 lifecycle rule to abort incomplete multipart uploads after 1 day.
-5. **Transcription**: Deepgram job writes words into `sources[].words` of the plan.
+5. **Transcription**: done (A1, A2). Next: try a real Deepgram key; self-hosted Whisper later.
 6. **Agents** (OpenAI via LangChain + LangGraph): Director + specialists (cut, caption, zoom, music, hook) in the `plan`
    job, each writing its part of the plan, validated by `EditPlan` before saving.
 7. **Render**: Remotion render worker (or Lambda) for the `render` job, output to

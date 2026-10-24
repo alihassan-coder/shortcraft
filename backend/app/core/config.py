@@ -93,14 +93,38 @@ class Settings(BaseSettings):
     # Scratch space for media jobs. Empty = the system temp dir.
     work_dir: Path | None = None
 
-    # --- AI / third-party (unused until agents/transcription land) ---------------------
-    # AI provider is OpenAI only (LangChain + LangGraph).
+    # --- AI agents (A3/A4): OpenAI only, via LangChain + LangGraph -----------------------
     openai_api_key: SecretStr | None = None
-    # Default chat model id. No default on purpose: pick a current id from OpenAI's docs.
-    openai_model_default: str | None = None
-    # Optional LangSmith tracing for agent runs.
+    # Model ids, checked 2026-10-24 on developers.openai.com/api/docs/models and /pricing:
+    # gpt-6-astra (most capable, $10/$50 per 1M in/out), gpt-6.1-sol ("near-Astra performance
+    # for complex work at a lower cost", $2/$10), gpt-6-luna ("most efficient model for
+    # focused, high-volume tasks", $0.10/$0.50). Model names live only here.
+    # Used by every agent role that has no AGENT_MODEL_<ROLE> of its own.
+    openai_model_default: str = "gpt-6.1-sol"
+    # Judgment-heavy roles fall back to OPENAI_MODEL_DEFAULT (gpt-6.1-sol).
+    agent_model_director: str | None = None
+    agent_model_cut: str | None = None
+    agent_model_zoom: str | None = None
+    agent_model_edit: str | None = None  # "describe a change"
+    # Small, focused roles default to the cheap model.
+    agent_model_caption: str | None = "gpt-6-luna"
+    agent_model_hook: str | None = "gpt-6-luna"
+    agent_model_music: str | None = "gpt-6-luna"
+    # Second model tried when a call fails (LangChain .with_fallbacks). Empty = none.
+    agent_model_fallback: str | None = None
+    # Plan jobs chained after transcription use mode "ai" (falls back to "basic" on failure).
+    ai_plan_enabled: bool = True
+    # Per model call (seconds) and retries with backoff (LangChain/OpenAI client).
+    ai_timeout_seconds: float = Field(default=60, gt=0)
+    ai_max_retries: int = Field(default=2, ge=0, le=10)
+    # "Describe a change" rate limit per project: token bucket (burst, refill per minute).
+    ai_edit_burst: int = Field(default=5, ge=1)
+    ai_edit_per_minute: float = Field(default=10, gt=0)
+    # Optional LangSmith tracing for agent runs (copied into LANGSMITH_* env vars).
     langsmith_api_key: SecretStr | None = None
     langsmith_tracing: bool = False
+    langsmith_project: str | None = None
+    langsmith_endpoint: str | None = None  # e.g. https://eu.api.smith.langchain.com
     deepgram_api_key: SecretStr | None = None
 
     # --- Transcription (A1) ---------------------------------------------------------------
@@ -158,6 +182,11 @@ class Settings(BaseSettings):
         if self.supabase_url:
             return f"{self.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
         return None
+
+    def agent_model(self, role: str) -> str:
+        """Model id for an agent role (director, cut, caption, zoom, hook, music, edit)."""
+        value = getattr(self, f"agent_model_{role}", None)
+        return value or self.openai_model_default
 
     def missing_r2_settings(self) -> list[str]:
         """Names (never values) of R2 settings that are required but unset."""

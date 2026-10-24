@@ -1,7 +1,8 @@
 """The `transcribe` job: 16 kHz WAV (from the proxy job) -> timed words -> transcript.json.
 
 Needs a source whose proxy job made `audio-16k.wav`. Stores the transcript next to the other
-artifacts, fills `Source.transcript_*`, then (AUTO_PLAN) starts a basic `plan` job.
+artifacts, fills `Source.transcript_*`, then (AUTO_PLAN) starts a `plan` job
+(mode "ai" when AI_PLAN_ENABLED, else "basic").
 """
 
 import json
@@ -73,7 +74,8 @@ async def run_transcribe(ctx: JobContext, job: Job, progress: Progress) -> dict[
 
     plan_job = None
     if ctx.settings.auto_plan:
-        plan_params = {"mode": "basic", "vibe": params.get("vibe") or "energetic"}
+        mode = "ai" if ctx.settings.ai_plan_enabled else "basic"
+        plan_params = {"mode": mode, "vibe": params.get("vibe") or "energetic"}
         plan_job = await enqueue_followup(ctx, project_id, source_id, "plan", plan_params)
 
     return {

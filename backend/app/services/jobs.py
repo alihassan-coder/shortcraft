@@ -12,6 +12,7 @@ from app.planning import VIBES
 from app.schemas.job import JobKind
 from app.services.job_queue import JobQueue
 from app.services.projects import get_project
+from app.worker.plan import PLAN_MODES
 from app.worker.runner import has_handler
 
 logger = logging.getLogger(__name__)
@@ -59,8 +60,8 @@ async def create_job(
 
 def _check_plan_params(params: dict[str, Any] | None) -> None:
     params = params or {}
-    if str(params.get("mode") or "basic") != "basic":
-        raise InvalidParamsError("Only plan mode 'basic' is available")
+    if str(params.get("mode") or "basic") not in PLAN_MODES:
+        raise InvalidParamsError(f"Plan mode must be one of {', '.join(PLAN_MODES)}")
     vibe = params.get("vibe")
     if vibe is not None and vibe not in VIBES:
         raise InvalidParamsError(f"vibe must be one of {', '.join(VIBES)}")

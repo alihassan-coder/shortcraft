@@ -96,7 +96,7 @@ export function isWordCut(plan: EditPlan, sourceId: string, word: Word) {
   return activeCuts(plan, sourceId).some((c) => mid >= c.startMs && mid <= c.endMs);
 }
 
-function keptRanges(plan: EditPlan, sourceId: string, from: number, to: number): [number, number][] {
+export function keptRanges(plan: EditPlan, sourceId: string, from: number, to: number): [number, number][] {
   const ranges: [number, number][] = [];
   let cursor = from;
   for (const c of activeCuts(plan, sourceId)) {

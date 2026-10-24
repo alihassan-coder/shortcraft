@@ -176,7 +176,9 @@ function Transport() {
         <span className="font-mono text-xs text-ink tabular-nums" data-time>
           {formatTime(currentMs, true)}
         </span>
-        <span className="font-mono text-xs text-muted-foreground tabular-nums">/ {formatTime(totalMs, true)}</span>
+        <span className="font-mono text-xs text-muted-foreground tabular-nums" data-total={Math.round(totalMs)}>
+          / {formatTime(totalMs, true)}
+        </span>
       </div>
 
       <IconButton label="Back to start" shortcut="Home" onClick={() => playerControls.seekOutputMs(0)}>

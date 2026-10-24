@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.ai.models import AgentModels, configure_tracing
+from app.ai.ratelimit import TokenBucket
 from app.api.v1.router import api_router
 from app.api.v1.routes.health import liveness_router
 from app.core.auth import TokenVerifier
@@ -16,7 +18,10 @@ from app.services.storage import build_storage
 from app.worker.context import JobContext
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, *, agent_models: AgentModels | None = None
+) -> FastAPI:
+    """`agent_models` overrides the AI chat models (tests pass fakes)."""
     settings = settings or get_settings()
     configure_logging(settings.log_level)
 
@@ -27,7 +32,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = engine
         app.state.sessionmaker = create_sessionmaker(engine)
         app.state.storage = build_storage(settings)
-        job_ctx = JobContext(settings, app.state.sessionmaker, app.state.storage)
+        configure_tracing(settings)
+        app.state.agent_models = agent_models or AgentModels(settings)
+        app.state.edit_limiter = TokenBucket(
+            burst=settings.ai_edit_burst, per_minute=settings.ai_edit_per_minute
+        )
+        job_ctx = JobContext(
+            settings, app.state.sessionmaker, app.state.storage, agent_models=agent_models
+        )
         app.state.job_queue = build_job_queue(settings, job_ctx)
         app.state.token_verifier = TokenVerifier(settings)
         try:

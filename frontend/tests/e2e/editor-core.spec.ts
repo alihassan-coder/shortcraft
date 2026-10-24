@@ -17,12 +17,12 @@ test("play and pause", async ({ page }) => {
   const time = page.locator("[data-time]");
   await expect(time).toHaveText("0:00.0");
 
-  await page.getByRole("button", { name: "Play" }).click();
-  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   await expect.poll(() => time.textContent(), { timeout: 10_000 }).not.toBe("0:00.0");
 
-  await page.getByRole("button", { name: "Pause" }).click();
-  await expect(page.getByRole("button", { name: "Play" })).toBeVisible();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   const paused = await time.textContent();
   await page.waitForTimeout(400);
   await expect(time).toHaveText(paused!);

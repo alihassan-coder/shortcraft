@@ -6,11 +6,20 @@ import { Monitor } from "lucide-react";
 import { DEMO_PLAN } from "@/lib/edit-plan/demo-plan";
 import { parsePlan } from "@/lib/edit-plan/migrate";
 import { resolveTimeline } from "@/lib/edit-plan/timeline";
-import { deleteSelection, duplicateClip, splitAtPlayhead, toggleOriginal } from "@/lib/editor/actions";
+import {
+  copySelection,
+  deleteSelection,
+  duplicateSelection,
+  pasteAtPlayhead,
+  selectAll,
+  splitSelectionAtPlayhead,
+  toggleOriginal,
+} from "@/lib/editor/actions";
 import { playerControls } from "@/lib/editor/player";
 import { togglePanel, useBreakpoint } from "@/lib/editor/layout";
 import { useSaveStore } from "@/lib/editor/save";
 import { dispatch, redo, selectedId, undo, usePlanStore, useUiStore } from "@/lib/editor/store";
+import { timelineZoom, useTimelineView } from "@/lib/editor/timeline-view";
 import { TAB_KEYS, openTab } from "./assets";
 import { Workspace } from "./workspace";
 
@@ -96,7 +105,17 @@ function useShortcuts() {
             return redo();
           case "d":
             e.preventDefault();
-            return duplicateClip();
+            return duplicateSelection();
+          case "a":
+            e.preventDefault();
+            return selectAll();
+          case "c":
+            // Only track items copy; anything else keeps the browser's copy.
+            if (copySelection()) e.preventDefault();
+            return;
+          case "v":
+            if (pasteAtPlayhead()) e.preventDefault();
+            return;
           case "e":
             e.preventDefault();
             return ui.setDialog("export");
@@ -110,6 +129,10 @@ function useShortcuts() {
         return ui.setPreviewZoom(e.code === "Digit0" ? "fit" : 1);
       }
       if (e.key === "?") return ui.setDialog("shortcuts");
+      // Timeline zoom: + / = in, - out, Shift+Z fit.
+      if (e.key === "+" || e.key === "=") return timelineZoom.step(1);
+      if (e.key === "-" || e.key === "_") return timelineZoom.step(-1);
+      if (e.shiftKey && e.key.toLowerCase() === "z") return timelineZoom.fit();
       if (!e.shiftKey && TAB_KEYS[e.key]) return openTab(TAB_KEYS[e.key]);
 
       switch (e.key) {
@@ -154,7 +177,11 @@ function useShortcuts() {
         case "s":
         case "S":
           e.preventDefault();
-          splitAtPlayhead();
+          splitSelectionAtPlayhead();
+          break;
+        case "n":
+        case "N":
+          useTimelineView.getState().toggleSnap();
           break;
         case "o":
         case "O":
@@ -168,7 +195,7 @@ function useShortcuts() {
         case "Backspace":
           if (ui.selection) {
             e.preventDefault();
-            deleteSelection();
+            deleteSelection({ ripple: e.shiftKey });
           }
           break;
         case "Escape":

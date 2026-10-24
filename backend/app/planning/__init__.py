@@ -1,4 +1,4 @@
-"""Edit plan builders. `basic` is the non-AI first edit; LLM agents come later (A3)."""
+"""Edit plan builders. `basic` is the non-AI first edit; the LLM agents (app/ai) improve it."""
 
 from app.planning.basic import (
     VIBES,

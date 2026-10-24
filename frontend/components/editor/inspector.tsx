@@ -20,10 +20,19 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CAPTION_PRESETS, captionTextStyle } from "@/lib/caption-presets";
 import type { EditCommand } from "@/lib/edit-plan/commands";
-import { ASPECT_SIZES, type AnimationType, type Aspect, type Clip, type TextItem, type TextStyle } from "@/lib/edit-plan/schema";
+import { ASPECT_SIZES, type AnimationType, type Aspect, type Clip, type Item, type TextItem, type TextStyle } from "@/lib/edit-plan/schema";
 import { FONT_FAMILIES, presetById, presetTextStyle } from "@/lib/edit-plan/text-styles";
 import { formatTime, isWordCut } from "@/lib/edit-plan/timeline";
-import { deleteClip, deleteSelection, duplicateClip, duplicateText, splitAtPlayhead, textItems } from "@/lib/editor/actions";
+import {
+  deleteClip,
+  deleteSelection,
+  duplicateClip,
+  duplicateSelection,
+  duplicateText,
+  findItem,
+  splitAtPlayhead,
+  textItems,
+} from "@/lib/editor/actions";
 import { playerControls } from "@/lib/editor/player";
 import { dispatch, usePlanStore, useTimeline, useUiStore } from "@/lib/editor/store";
 import { cn } from "@/lib/utils";
@@ -41,6 +50,7 @@ export function Inspector() {
   const plan = usePlan();
   const select = useUiStore((s) => s.select);
   const action = useContext(PanelHeaderAction);
+  const selectedCount = useUiStore((s) => s.selected.length);
 
   let body: React.ReactNode = null;
   let title = "Project";
@@ -59,6 +69,13 @@ export function Inspector() {
       title = "Text";
       subtitle = `${formatTime(t.startMs, true)} – ${formatTime(t.endMs, true)}`;
       body = <TextInspector text={t} />;
+    }
+  } else if (selection?.kind === "item") {
+    const hit = findItem(selection.id, plan);
+    if (hit) {
+      title = ITEM_TITLES[hit.item.kind];
+      subtitle = `${formatTime(hit.item.startMs, true)} – ${formatTime(hit.item.endMs, true)} · ${hit.track.name}`;
+      body = <ItemInspector item={hit.item} locked={hit.track.locked} />;
     }
   } else if (selection?.kind === "zoom") {
     const z = plan.zooms.items.find((x) => x.id === selection.id);
@@ -91,8 +108,79 @@ export function Inspector() {
         )}
         {action}
       </div>
+      {selectedCount > 1 && <MultiSelectBar count={selectedCount} />}
       <div className="min-h-0 flex-1 overflow-y-auto">{body ?? <ProjectInspector />}</div>
     </div>
+  );
+}
+
+/* ---------- Multi-select & generic items ---------- */
+
+function MultiSelectBar({ count }: { count: number }) {
+  return (
+    <div className="flex h-10 shrink-0 items-center gap-1 border-b bg-surface pr-2 pl-4" data-multi-select={count}>
+      <span className="text-xs font-medium text-ink">{count} selected</span>
+      <span className="text-[11px] text-muted-foreground">· editing the first</span>
+      <div className="ml-auto flex items-center gap-0.5">
+        <IconButton label={`Duplicate ${count} items`} shortcut="mod+D" onClick={duplicateSelection}>
+          <Copy className="size-4" />
+        </IconButton>
+        <IconButton label={`Delete ${count} items`} shortcut="delete" onClick={() => deleteSelection()}>
+          <Trash2 className="size-4" />
+        </IconButton>
+      </div>
+    </div>
+  );
+}
+
+const ITEM_TITLES: Record<Item["kind"], string> = { text: "Text", element: "Element", image: "Image", sfx: "Sound effect" };
+
+/** Timing and basics for element, image and sound-effect items (full controls arrive in E6/E7). */
+function ItemInspector({ item, locked }: { item: Item; locked: boolean }) {
+  const update = (patch: ItemPatch) => dispatch({ type: "updateItem", itemId: item.id, patch });
+  const sec = (ms: number) => Math.round(ms / 10) / 100;
+  return (
+    <>
+      <div className="flex items-center gap-1 border-b px-3 py-2">
+        <IconButton label="Duplicate" shortcut="mod+D" onClick={duplicateSelection}>
+          <Copy className="size-4" />
+        </IconButton>
+        <IconButton label="Delete" shortcut="delete" onClick={() => deleteSelection()}>
+          <Trash2 className="size-4" />
+        </IconButton>
+        {locked && <span className="ml-auto text-xs text-muted-foreground">Track is locked</span>}
+      </div>
+      <Section id="item-timing" title="Timing">
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label="Start" suffix="s" value={sec(item.startMs)} min={0} step={0.1} onCommit={(v) => update({ startMs: v * 1000 })} />
+          <NumberField label="End" suffix="s" value={sec(item.endMs)} min={0} step={0.1} onCommit={(v) => update({ endMs: v * 1000 })} />
+        </div>
+      </Section>
+      {item.kind === "sfx" ? (
+        <Section id="item-sfx" title="Sound">
+          <SliderRow label="Volume" value={Math.round(item.volume * 100)} min={0} max={200} format={pct} onChange={(v) => update({ volume: v / 100 })} />
+        </Section>
+      ) : (
+        <Section id="item-look" title="Look">
+          <SliderRow
+            label="Opacity"
+            value={Math.round(item.transform.opacity * 100)}
+            min={0}
+            max={100}
+            format={pct}
+            onChange={(v) => update({ transform: { opacity: v / 100 } })}
+          />
+          <SliderRow
+            label="Scale"
+            value={Math.round(item.transform.scale * 100)}
+            min={10}
+            max={400}
+            format={pct}
+            onChange={(v) => update({ transform: { scale: v / 100 } })}
+          />
+        </Section>
+      )}
+    </>
   );
 }
 

@@ -60,6 +60,27 @@ class InvalidParamsError(AppError):
     code = "invalid_params"
 
 
+class RateLimitedError(AppError):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    code = "rate_limited"
+
+    def __init__(self, message: str, *, retry_after: int) -> None:
+        super().__init__(message)
+        self.headers = {"Retry-After": str(retry_after)}
+
+
+class ServiceUnavailableError(AppError):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "ai_unavailable"
+
+
+class UpstreamError(AppError):
+    """A third-party service (OpenAI) failed."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    code = "ai_error"
+
+
 class PayloadTooLargeError(AppError):
     status_code = status.HTTP_413_CONTENT_TOO_LARGE
     code = "payload_too_large"
@@ -75,6 +96,7 @@ def error_body(code: str, message: str, details: Any = None) -> dict[str, Any]:
 async def _app_error(_: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, AppError)
     headers = {"WWW-Authenticate": "Bearer"} if isinstance(exc, UnauthorizedError) else None
+    headers = getattr(exc, "headers", None) or headers
     return JSONResponse(
         error_body(exc.code, exc.message), status_code=exc.status_code, headers=headers
     )

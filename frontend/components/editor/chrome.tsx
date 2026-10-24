@@ -27,7 +27,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import {
   comingSoon,
   deleteSelection,
-  duplicateClip,
+  duplicateSelection,
   focusTitle,
   keyLabel,
   splitAtPlayhead,
@@ -101,11 +101,11 @@ function EditorMenus() {
             Split at playhead
             <Shortcut keys="S" />
           </MenubarItem>
-          <MenubarItem onSelect={() => duplicateClip()}>
-            Duplicate clip
+          <MenubarItem onSelect={() => duplicateSelection()}>
+            Duplicate
             <Shortcut keys="mod+D" />
           </MenubarItem>
-          <MenubarItem disabled={!selection} onSelect={deleteSelection}>
+          <MenubarItem disabled={!selection} onSelect={() => deleteSelection()}>
             {selection?.kind === "word" ? "Cut or restore word" : "Delete selection"}
             <Shortcut keys="delete" />
           </MenubarItem>
@@ -347,7 +347,13 @@ const SHORTCUTS: [string, string][] = [
   ["← / →", "Previous / next word"],
   ["S", "Split at playhead"],
   ["delete", "Delete selection (cut a selected word)"],
-  ["mod+D", "Duplicate clip"],
+  ["shift+delete", "Ripple delete (close the gap)"],
+  ["mod+D", "Duplicate selection"],
+  ["mod+A", "Select everything on the timeline"],
+  ["mod+C / V", "Copy / paste track items at the playhead"],
+  ["N", "Snapping on / off (hold Alt to bypass)"],
+  ["+ / -", "Zoom the timeline in / out"],
+  ["shift+Z", "Fit the timeline"],
   ["H", "Highlight selected word"],
   ["O", "Show original / edited"],
   ["1 – 0", "Switch assets tab"],
@@ -372,7 +378,7 @@ function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
               <dt className="text-ink-2">{d}</dt>
               <dd>
                 <kbd className="rounded-[6px] border bg-surface px-1.5 py-0.5 font-mono text-[11px]">
-                  {k.includes("+") || k === "delete" ? keyLabel(k) : k}
+                  {(k.includes("+") && !k.includes(" ")) || k === "delete" ? keyLabel(k) : k.replace("mod", keyLabel("mod"))}
                 </kbd>
               </dd>
             </div>

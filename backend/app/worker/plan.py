@@ -1,10 +1,17 @@
-"""The `plan` job, mode "basic": the first edit without AI.
+"""The `plan` job: the first edit.
 
-transcript.json + ffmpeg silencedetect on audio-16k.wav -> `build_basic_plan` -> validated
-EditPlan v2 -> saved as the project's next plan revision.
+mode "basic": transcript.json + ffmpeg silencedetect on audio-16k.wav -> `build_basic_plan`
+-> validated EditPlan v2 -> saved as the project's next plan revision.
+
+mode "ai": the same basic plan, then the LangGraph agents (app/ai/graph.py) propose edit
+commands, which are validated and applied in Python before saving. Without an OpenAI key,
+or when the agents fail, the basic plan is saved and the job result carries a warning: AI
+problems never fail the upload.
 """
 
+import asyncio
 import json
+import logging
 import tempfile
 import uuid
 from pathlib import Path
@@ -13,6 +20,8 @@ from typing import Any, cast
 import anyio
 from pydantic import ValidationError
 
+from app.ai import apply_ai_commands, run_plan_graph
+from app.ai.agents.base import short_error
 from app.core.errors import PreconditionFailedError
 from app.db.models import EditPlanRecord, Job, Project, Source
 from app.media import detect_silences
@@ -23,13 +32,15 @@ from app.transcription import Transcript
 from app.worker.context import JobContext, JobFailedError, Progress
 
 SAVE_ATTEMPTS = 3
+PLAN_MODES = ("basic", "ai")
+logger = logging.getLogger(__name__)
 
 
 def plan_params(params: dict[str, Any] | None) -> tuple[str, Vibe]:
     params = params or {}
     mode = str(params.get("mode") or "basic")
-    if mode != "basic":
-        raise JobFailedError(f"Plan mode {mode!r} is not available yet (only 'basic')")
+    if mode not in PLAN_MODES:
+        raise JobFailedError(f"Unknown plan mode {mode!r}; use one of {', '.join(PLAN_MODES)}")
     vibe = str(params.get("vibe") or "energetic")
     if vibe not in VIBES:
         raise JobFailedError(f"Unknown vibe {vibe!r}; use one of {', '.join(VIBES)}")
@@ -101,7 +112,13 @@ async def run_plan(ctx: JobContext, job: Job, progress: Progress) -> dict[str, A
         plan = EditPlan.model_validate(data)
     except ValidationError as exc:
         raise JobFailedError(f"Built plan is invalid: {exc.error_count()} error(s)") from exc
-    await progress(80)
+    await progress(65)
+
+    ai: dict[str, Any] | None = None
+    warnings: list[str] = []
+    if mode == "ai":
+        data, plan, ai, warnings = await _improve_with_ai(ctx, data, plan, progress)
+    await progress(90)
 
     revision = await _save(ctx, project_id, plan)
     counts: dict[str, int] = {}
@@ -118,7 +135,63 @@ async def run_plan(ctx: JobContext, job: Job, progress: Progress) -> dict[str, A
         "highlights": len(data["captions"]["highlights"]),
         "zooms": len(data["zooms"]["items"]),
         "hook": data["hook"]["text"],
+        "mode_used": "ai" if ai is not None else "basic",
+        "ai": ai,
+        "warnings": warnings,
     }
+
+
+async def _improve_with_ai(
+    ctx: JobContext, data: dict[str, Any], plan: EditPlan, progress: Progress
+) -> tuple[dict[str, Any], EditPlan, dict[str, Any] | None, list[str]]:
+    """(data, plan, ai summary or None, warnings). Falls back to the basic plan on any AI
+    problem; never raises for one."""
+    models = ctx.ai_models()
+    if not models.available:
+        return (
+            data,
+            plan,
+            None,
+            ["AI agents are not configured (no OPENAI_API_KEY); saved the basic edit"],
+        )
+    done = 0
+    total = 7  # prepare_context, 5 specialists, director
+
+    async def on_event(event: dict[str, Any]) -> None:
+        nonlocal done
+        if event.get("status") in ("done", "failed") and event.get("node") != "validate":
+            done += 1
+            await progress(65 + min(total, done) * 3)
+
+    limit = ctx.settings.ai_timeout_seconds * (ctx.settings.ai_max_retries + 1) * 2 + 30
+    try:
+        async with asyncio.timeout(limit):
+            result = await run_plan_graph(data, models, on_event=on_event)
+    except Exception as exc:
+        message = short_error(exc)
+        logger.warning("AI plan failed, keeping the basic plan: %s", message)
+        return data, plan, None, [f"AI agents failed ({message}); saved the basic edit"]
+
+    warnings = list(result.warnings)
+    if not result.commands:
+        warnings.append("AI agents suggested no changes; saved the basic edit")
+        return data, plan, None, warnings
+    improved, skipped = apply_ai_commands(data, result.commands)
+    if skipped:
+        warnings.append(f"Skipped unsupported AI commands: {', '.join(sorted(set(skipped)))}")
+    try:
+        improved_plan = EditPlan.model_validate(improved)
+    except ValidationError as exc:
+        warnings.append(f"AI edit was invalid ({exc.error_count()} error(s)); saved the basic edit")
+        return data, plan, None, warnings
+    summary = {
+        "commands": len(result.commands),
+        "changes": result.changes,
+        "dropped": len(result.dropped),
+        "failed_agents": result.failed_agents,
+        "rationales": result.rationales,
+    }
+    return improved, improved_plan, summary, warnings
 
 
 async def _save(ctx: JobContext, project_id: uuid.UUID, plan: EditPlan) -> int:

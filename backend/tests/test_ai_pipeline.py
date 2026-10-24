@@ -14,7 +14,7 @@ from httpx import AsyncClient
 from app.core.config import MiB
 from app.main import create_app
 from app.planning.basic import RETAKE_NOTE
-from app.schemas.edit_plan import EditPlan
+from app.schemas.edit_plan import EditPlanV2
 from app.transcription import FakeProvider, TranscriptionError
 from tests.conftest import _client_for, make_settings
 from tests.test_proxy_pipeline import TERMINAL, _project, _upload
@@ -85,7 +85,7 @@ async def test_upload_chain_builds_a_basic_plan(chain_client: AsyncClient, gap_c
     assert response.status_code == 200
     assert response.headers["etag"] == '"1"'
     plan = response.json()["plan"]
-    EditPlan.model_validate(plan)
+    EditPlanV2.model_validate(plan)
     assert plan["version"] == 2
     source = plan["sources"][0]
     assert source["id"] == sid

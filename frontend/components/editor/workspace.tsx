@@ -178,7 +178,7 @@ function TimelineSection({ collapsible = true }: { collapsible?: boolean }) {
         </button>
       )}
       {!collapsed && (
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-hidden">
           <Timeline />
         </div>
       )}

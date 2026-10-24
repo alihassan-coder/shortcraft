@@ -40,7 +40,9 @@ The AI never makes a video file. It writes an **edit plan** (JSON) using the **s
 
 **Silences and filler words are found without the LLM** (step 2 gives fillers, step 3 gives silences). The LLM handles what needs judgment: which take is better, which words matter, where to zoom, what the hook should say.
 
-> **Why Deepgram first:** Whisper models tend to **drop "um/uh"** from transcripts, and those are exactly what we need to cut. Deepgram keeps them with a flag. *(This is from my knowledge, not checked against their docs today. Verify when we integrate.)*
+> **Why Deepgram first:** Whisper models tend to **drop "um/uh"** from transcripts, and those are exactly what we need to cut. Deepgram keeps them with a flag.
+>
+> **Status (2026-10-24):** steps 1, 2 and the non-LLM part of 3-5 are built (A1 + A2). Checked against Deepgram's docs: `POST https://api.deepgram.com/v1/listen`, `Authorization: Token <key>`, model `nova-3`, `filler_words=true` (uh/um are removed by default), `punctuate`, `smart_format`; filler words are English only. The `transcribe` job stores `transcript.json`; the `plan` job (mode `basic`) uses ffmpeg `silencedetect` + word gaps instead of silero-vad for now, plus a conservative retake heuristic. Details: [BACKEND.md](BACKEND.md) section 4. Not yet run against the real API (needs a key).
 
 ---
 

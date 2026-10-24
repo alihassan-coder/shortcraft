@@ -307,6 +307,31 @@ All panels are resizable and collapsible (E2). The transcript moves into the Ass
 
 **Schema impact:** `overlays` grows into **tracks of items** (text, element, image, sfx, each with start/end, transform and animation) and clips get `transition` + `transform` + `opacity` + `animation`. This is a **v3 schema with a migration**, like v1 → v2. `resolveTimeline` and `applyEdit` stay the only modules that know the rules.
 
+**Schema v3 (S3, done).** `frontend/lib/edit-plan/schema.ts`; v2 is frozen in `schema-v2.ts`; backend mirror `backend/app/schemas/edit_plan.py` accepts v2 and v3 (picked by `version`).
+
+```ts
+EditPlan v3 {
+  version: 3
+  clips[]:     v2 clip + frame.opacity, animation { in, out }, transition? { type: none|fade|slide|wipe|zoom|whip, durationMs } (into the next clip), audioDetached?
+  tracks[]:    { id, kind: text|element|image|sfx, name, locked, hidden, muted, items[] }   // array order = layer order, tracks[0] at the bottom
+  items:       { id, kind, startMs, endMs (OUTPUT time),
+                 transform { x, y (center, 0–1), scale, rotation°, opacity },          // not on sfx
+                 animation { in/out: { type: none|fade|pop|slide-up|-down|-left|-right|typewriter|bounce, durationMs }, loop: none|pulse|wiggle } }
+    text:      text, presetId?, style { fontFamily, fontWeight, italic, size, letterSpacing, lineHeight, align, case,
+                                         color, gradient?, stroke?, shadow?, background? }
+    element:   element: { type: emoji, emoji } | { type: shape, shape: rect|circle|line|arrow, fill, stroke, strokeWidth, width, height } | { type: sticker, stickerId }
+    image:     src, width (fraction of canvas width)
+    sfx:       sfxId (lib/edit-plan/sfx-library.ts), volume, fadeInMs, fadeOutMs
+  progressBar: { enabled, position, color, thickness }   // was overlays.progressBar
+  colors:      "#RRGGBB" or "#RRGGBBAA" everywhere (ColorSchema)
+}
+```
+
+- **Migration:** `parsePlan` reads v1 → v2 → v3. `migrateV2toV3` puts v2 texts on one "Text" track (preset → full style), images on an "Images" track, and moves the progress bar.
+- **Commands:** `addItem` (creates the track if needed), `updateItem` (deep-merges style/transform/animation; `null` turns a text effect off), `removeItems`, `moveItem` (keeps length, clamps to the video), `trimItem` (min 100 ms), `duplicateItems`, `addTrack`, `removeTrack`, `reorderTrack`, `updateTrack`, `setTransition`, `setProgressBar`. Items on locked tracks can't be changed.
+- **Timeline:** `tl.itemsAt(outMs)` (visible items, bottom layer first), `tl.sfxCues`, `tl.clipSpans`, `tl.transitions`.
+- **Render:** transitions don't overlap clips yet: the outgoing clip leaves during the first half and the incoming clip arrives during the second half (no `@remotion/transitions`). SFX files are placeholders until E7 (`available: false` entries are skipped). `audioDetached` is stored only; the clip keeps playing its own audio until E7 adds audio tracks.
+
 ### 9.6 Decisions (owner, 2026-10-24)
 
 - **Layout:** CapCut-style pro layout (Assets left, Player center, Inspector right, multi-track timeline bottom). Approved.

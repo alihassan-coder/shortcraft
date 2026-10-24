@@ -17,7 +17,7 @@ from app.planning import (
     silence_cuts,
 )
 from app.planning.basic import RETAKE_NOTE, sentence_starts, subtract_ranges, word_gaps
-from app.schemas.edit_plan import EditPlan
+from app.schemas.edit_plan import EditPlanV2
 from app.transcription import TranscriptWord, is_filler
 
 pytestmark = pytest.mark.unit
@@ -190,7 +190,7 @@ def _golden_plan() -> dict:
 
 def test_basic_plan_validates_and_has_every_part() -> None:
     plan = _golden_plan()
-    EditPlan.model_validate(plan)
+    EditPlanV2.model_validate(plan)
     reasons = [c["reason"] for c in plan["cuts"]["items"]]
     assert reasons.count("filler") == 2
     assert reasons.count("retake") == 1
@@ -226,7 +226,7 @@ def test_basic_plan_validates_and_has_every_part() -> None:
 def test_vibe_defaults(vibe: str, preset: str, track: str, style: str) -> None:
     words = say(*SCRIPT, start=350, word_ms=240)
     plan = build_basic_plan(META, words, SILENCES, BasicPlanSettings(vibe=vibe))  # type: ignore[arg-type]
-    EditPlan.model_validate(plan)
+    EditPlanV2.model_validate(plan)
     assert plan["vibe"] == vibe
     assert plan["captions"]["presetId"] == preset
     assert plan["music"]["trackId"] == track
@@ -235,7 +235,7 @@ def test_vibe_defaults(vibe: str, preset: str, track: str, style: str) -> None:
 
 def test_plan_without_words() -> None:
     plan = build_basic_plan(META, [], [(0, 16_000)])
-    EditPlan.model_validate(plan)
+    EditPlanV2.model_validate(plan)
     assert plan["cuts"]["items"] == []
     assert plan["hook"] == {"enabled": False, "text": "", "options": [], "durationMs": 2600}
     assert plan["captions"]["highlights"] == []

@@ -16,10 +16,12 @@ JobKind = Literal["proxy", "transcribe", "plan", "render"]
 - transcribe: speech to words with timings (Deepgram, or the offline fake), fillers kept.
   Needs `source_id` (after proxy). Optional params: {"language": "en", "vibe": ...}.
   Enqueued after a proxy job when TRANSCRIBE_ON_UPLOAD=true.
-- plan: write the edit plan. Today only params {"mode": "basic", "vibe":
-  "energetic" | "clean" | "story"}: silences, fillers and retakes cut without AI, default
-  captions/zooms/hook/music. Needs `source_id` (after transcribe). Saved as the next plan
-  revision. Enqueued after a transcribe job when AUTO_PLAN=true.
+- plan: write the edit plan. Params {"mode": "basic" | "ai", "vibe": "energetic" | "clean" |
+  "story"}. basic: silences, fillers and retakes cut without AI, default
+  captions/zooms/hook/music. ai: the basic edit improved by the LangGraph agents (falls back
+  to basic, with `result.warnings`, when OpenAI is unavailable). Needs `source_id` (after
+  transcribe). Saved as the next plan revision. Enqueued after a transcribe job when
+  AUTO_PLAN=true (mode "ai" when AI_PLAN_ENABLED=true).
 - render: final video render.
 """
 JobStatus = Literal["queued", "running", "succeeded", "failed"]

@@ -88,9 +88,7 @@ describe("NumberField", () => {
     expect(onCommit).not.toHaveBeenCalled();
   });
 
-  // Known bug: Escape resets the draft and then blurs, but the blur handler still
-  // sees the typed draft and commits it. Flip to `it` once NumberField is fixed.
-  it.fails("discards the draft on Escape", async () => {
+  it("discards the draft on Escape", async () => {
     const onCommit = vi.fn();
     render(<NumberField label="H" value={1920} onCommit={onCommit} />);
     const input = screen.getByRole("textbox", { name: "H" });
