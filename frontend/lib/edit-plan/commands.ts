@@ -70,6 +70,8 @@ export type ItemPatch = {
   fadeOutMs?: number;
 };
 
+export type LayerMove = "forward" | "backward" | "front" | "back";
+
 export type TrackPatch = Patch<Pick<Track, "name" | "locked" | "hidden" | "muted">>;
 
 export type EditCommand =
@@ -125,6 +127,12 @@ export type EditCommand =
   | { type: "addTrack"; kind: TrackKind; trackId?: string; name?: string; index?: number }
   | { type: "removeTrack"; trackId: string }
   | { type: "reorderTrack"; trackId: string; toIndex: number }
+  /**
+   * Layer order for one visual item. Layers are tracks (tracks[0] is drawn first),
+   * so this moves the item past the next visual track above/below: a lone item
+   * moves its whole track, otherwise it joins that track (same kind) or a new track.
+   */
+  | { type: "reorderItem"; itemId: string; to: LayerMove }
   | { type: "updateTrack"; trackId: string; patch: TrackPatch }
   | { type: "setProgressBar"; bar: Patch<ProgressBar> }
   // Audio & hook
@@ -365,6 +373,7 @@ function mutate(p: EditPlan, cmd: EditCommand, before: EditPlan): boolean {
     case "addTrack":
     case "removeTrack":
     case "reorderTrack":
+    case "reorderItem":
     case "updateTrack":
       return mutateTracks(p, cmd, resolveTimeline(before).durationMs);
 
@@ -424,6 +433,7 @@ type TrackCommand = Extract<
       | "addTrack"
       | "removeTrack"
       | "reorderTrack"
+      | "reorderItem"
       | "updateTrack";
   }
 >;
@@ -650,6 +660,38 @@ function mutateTracks(p: EditPlan, cmd: TrackCommand, durationMs: number): boole
       if (from < 0 || from === to) return false;
       const [track] = p.tracks.splice(from, 1);
       p.tracks.splice(to, 0, track);
+      return true;
+    }
+
+    case "reorderItem": {
+      const hit = editable(cmd.itemId);
+      if (!hit || hit.item.kind === "sfx") return false;
+      const { track, item } = hit;
+      const from = p.tracks.indexOf(track);
+      const up = cmd.to === "forward" || cmd.to === "front";
+      // Visual tracks that are drawn above (or below) this one, nearest first.
+      const others = p.tracks
+        .map((t, i) => ({ t, i }))
+        .filter(({ t, i }) => t.kind !== "sfx" && (up ? i > from : i < from));
+      if (!up) others.reverse();
+      if (!others.length) return false;
+      const past = cmd.to === "front" || cmd.to === "back" ? others[others.length - 1] : others[0];
+      if (track.items.length === 1) {
+        // Alone on its track: move the whole track just past `past`.
+        const [moved] = p.tracks.splice(from, 1);
+        const at = p.tracks.indexOf(past.t);
+        p.tracks.splice(up ? at + 1 : at, 0, moved);
+        return true;
+      }
+      let target = past.t.kind === item.kind && !past.t.locked ? past.t : null;
+      if (!target) {
+        target = newTrack(item.kind);
+        const at = p.tracks.indexOf(past.t);
+        p.tracks.splice(up ? at + 1 : at, 0, target);
+      }
+      track.items = track.items.filter((i) => i !== item);
+      target.items.push(item);
+      sortItems(target);
       return true;
     }
 
