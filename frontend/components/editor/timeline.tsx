@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/context-menu";
 import { trackById } from "@/lib/edit-plan/music-library";
 import { activeCuts, isWordCut } from "@/lib/edit-plan/timeline";
-import { keyLabel } from "@/lib/editor/actions";
+import { keyLabel, textItems } from "@/lib/editor/actions";
 import { revealPanel } from "@/lib/editor/layout";
 import { playerControls } from "@/lib/editor/player";
 import { dispatch, usePlanStore, useSelectedId, useTimeline, useUiStore } from "@/lib/editor/store";
@@ -51,7 +51,7 @@ export function Timeline() {
   const seconds = Array.from({ length: Math.floor(duration / 1000) + 1 }, (_, i) => i);
   const track = trackById(plan.music.trackId);
   // Text lives in output time; place it at the source moment it starts on (approximate until E4).
-  const texts = plan.overlays.texts.map((t) => {
+  const texts = textItems(plan).map((t) => {
     const s0 = tl.toSource(t.startMs)?.srcMs ?? 0;
     const s1 = tl.toSource(Math.max(t.startMs, t.endMs - 1))?.srcMs ?? s0;
     return { t, start: s0, end: Math.max(s0 + 200, s1) };

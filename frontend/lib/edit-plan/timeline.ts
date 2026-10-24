@@ -1,9 +1,10 @@
-import type { Cut, EditPlan, Word, Zoom } from "./schema";
+import type { Cut, EditPlan, TransitionType, VisualItem, Word, Zoom } from "./schema";
 
 // resolveTimeline(plan) turns an edit plan into everything needed to play it:
 // what is on screen at any output time, which words are spoken, how long the
 // video is, and how to convert between source and output time.
-// It is the only place that knows how clips, speed and cuts combine, and both
+// It is the only place that knows how clips, speed, cuts, transitions and track
+// layers combine, and both
 // the editor and the Remotion render read from it, so they cannot disagree.
 
 export type Piece = {
@@ -30,6 +31,27 @@ export type CaptionLine = { words: TimedWord[]; start: number; end: number };
 
 export type SourcePoint = { sourceId: string; clipId: string; srcMs: number };
 
+/** Where a clip sits in output time (clips play back to back). */
+export type ClipSpan = { clipId: string; outStart: number; outEnd: number };
+
+/** A transition centred on the cut between two clips, at output time `atMs`. */
+export type TransitionCue = { fromClipId: string; toClipId: string; atMs: number; type: Exclude<TransitionType, "none">; durationMs: number };
+
+/** A visible track item; higher `layer` is drawn on top. */
+export type LayeredItem = { item: VisualItem; trackId: string; layer: number };
+
+/** A sound effect to play, in output time. */
+export type SfxCue = {
+  itemId: string;
+  trackId: string;
+  sfxId: string;
+  startMs: number;
+  endMs: number;
+  volume: number;
+  fadeInMs: number;
+  fadeOutMs: number;
+};
+
 export type ResolvedTimeline = {
   durationMs: number;
   pieces: Piece[];
@@ -40,6 +62,12 @@ export type ResolvedTimeline = {
   toOutputNearest: (sourceId: string, srcMs: number) => number;
   toSource: (outMs: number) => SourcePoint | null;
   zoomAt: (outMs: number) => { scale: number; focusX: number; focusY: number } | null;
+  clipSpans: ClipSpan[];
+  transitions: TransitionCue[];
+  /** Visible text/element/image items at an output time, bottom layer first. */
+  itemsAt: (outMs: number) => LayeredItem[];
+  /** Sound effects on unmuted, visible SFX tracks that start inside the video. */
+  sfxCues: SfxCue[];
 };
 
 const MIN_PIECE_MS = 80;
@@ -210,6 +238,44 @@ function resolve(plan: EditPlan, original: boolean): ResolvedTimeline {
     return { scale: 1 + (z.scale - 1) * zoomAmount(z, at.srcMs), focusX: z.focusX, focusY: z.focusY };
   };
 
+  const clipSpans: ClipSpan[] = [];
+  for (const p of pieces) {
+    const last = clipSpans[clipSpans.length - 1];
+    if (last?.clipId === p.clipId) last.outEnd = p.outEnd;
+    else clipSpans.push({ clipId: p.clipId, outStart: p.outStart, outEnd: p.outEnd });
+  }
+
+  const clipById = new Map(plan.clips.map((c) => [c.id, c]));
+  const transitions: TransitionCue[] = [];
+  if (!original) {
+    clipSpans.forEach((a, i) => {
+      const b = clipSpans[i + 1];
+      const t = clipById.get(a.clipId)?.transition;
+      if (!b || !t || t.type === "none") return;
+      // Half the transition plays on each side of the cut, so it can't outlast either clip.
+      const durationMs = Math.min(t.durationMs, (a.outEnd - a.outStart) * 2, (b.outEnd - b.outStart) * 2);
+      if (durationMs > 0) transitions.push({ fromClipId: a.clipId, toClipId: b.clipId, atMs: a.outEnd, type: t.type, durationMs });
+    });
+  }
+
+  const layered: LayeredItem[] = [];
+  const sfxCues: SfxCue[] = [];
+  if (!original) {
+    for (const track of plan.tracks) {
+      if (track.hidden) continue;
+      for (const item of track.items) {
+        if (item.startMs >= out || item.endMs <= item.startMs) continue;
+        if (item.kind === "sfx") {
+          if (!track.muted) {
+            const { id: itemId, sfxId, startMs, endMs, volume, fadeInMs, fadeOutMs } = item;
+            sfxCues.push({ itemId, trackId: track.id, sfxId, startMs, endMs: Math.min(endMs, out), volume, fadeInMs, fadeOutMs });
+          }
+        } else layered.push({ item, trackId: track.id, layer: layered.length });
+      }
+    }
+  }
+  const itemsAt = (outMs: number) => layered.filter(({ item }) => outMs >= item.startMs && outMs < item.endMs);
+
   return {
     durationMs: out,
     pieces,
@@ -219,6 +285,10 @@ function resolve(plan: EditPlan, original: boolean): ResolvedTimeline {
     toOutputNearest,
     toSource,
     zoomAt,
+    clipSpans,
+    transitions,
+    itemsAt,
+    sfxCues,
   };
 }
 

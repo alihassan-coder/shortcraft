@@ -12,6 +12,7 @@ from arq.worker import Function, func
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import create_engine, create_sessionmaker
+from app.services.job_queue import ArqJobQueue
 from app.services.storage import build_storage
 from app.worker.context import JobContext
 from app.worker.runner import ARQ_TASK, run_job
@@ -24,10 +25,14 @@ async def startup(ctx: dict[str, Any]) -> None:
     configure_logging(settings.log_level)
     engine = create_engine(settings.database_url, echo=settings.database_echo)
     ctx["engine"] = engine
+    # Follow-up jobs (proxy -> transcribe -> plan) go back to Redis on arq's own pool.
+    redis = ctx.get("redis")
+    queue = ArqJobQueue(settings.redis_url or DEFAULT_REDIS_URL, pool=redis) if redis else None
     ctx["job_ctx"] = JobContext(
         settings=settings,
         sessionmaker=create_sessionmaker(engine),
         storage=build_storage(settings),
+        enqueue=queue.enqueue if queue else None,
     )
 
 

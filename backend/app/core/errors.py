@@ -55,6 +55,11 @@ class PreconditionRequiredError(AppError):
     code = "precondition_required"
 
 
+class InvalidParamsError(AppError):
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    code = "invalid_params"
+
+
 class PayloadTooLargeError(AppError):
     status_code = status.HTTP_413_CONTENT_TOO_LARGE
     code = "payload_too_large"

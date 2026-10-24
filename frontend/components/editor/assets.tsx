@@ -35,9 +35,9 @@ import {
 } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CAPTION_PRESETS, captionTextStyle } from "@/lib/caption-presets";
-import type { Clip, TextOverlay } from "@/lib/edit-plan/schema";
+import type { Clip, TextItem as TextItemData } from "@/lib/edit-plan/schema";
 import { formatTime } from "@/lib/edit-plan/timeline";
-import { addTextAtPlayhead, applyColorPreset, duplicateText, keyLabel, targetClip } from "@/lib/editor/actions";
+import { addTextAtPlayhead, applyColorPreset, deleteText, duplicateText, keyLabel, targetClip, textItems } from "@/lib/editor/actions";
 import { revealPanel } from "@/lib/editor/layout";
 import { playerControls } from "@/lib/editor/player";
 import { dispatch, usePlanStore, useSelectedId, useUiStore, type AssetTab } from "@/lib/editor/store";
@@ -226,7 +226,8 @@ function MediaPanel() {
 const TEXT_SAMPLES: Record<string, string> = { "bold-pop": "BIG NEWS", clean: "Clean title", karaoke: "Sing along" };
 
 function TextPanel() {
-  const texts = usePlanStore((s) => s.plan.overlays.texts);
+  const plan = usePlanStore((s) => s.plan);
+  const texts = textItems(plan);
   const selectedId = useSelectedId("text");
   return (
     <>
@@ -276,7 +277,7 @@ function TextPanel() {
   );
 }
 
-function TextItem({ text, selected }: { text: TextOverlay; selected: boolean }) {
+function TextItem({ text, selected }: { text: TextItemData; selected: boolean }) {
   const edit = () => {
     useUiStore.getState().select({ kind: "text", id: text.id });
     revealPanel("inspector");
@@ -316,11 +317,7 @@ export function TextContextMenu({ textId, onEdit, children }: { textId: string; 
         <ContextMenuSeparator />
         <ContextMenuItem
           variant="destructive"
-          onSelect={() => {
-            dispatch({ type: "removeText", textId });
-            const ui = useUiStore.getState();
-            if (ui.selection?.id === textId) ui.select(null);
-          }}
+          onSelect={() => deleteText(textId)}
         >
           <Trash2 /> Delete
           <ContextMenuShortcut>{keyLabel("delete")}</ContextMenuShortcut>
@@ -333,7 +330,7 @@ export function TextContextMenu({ textId, onEdit, children }: { textId: string; 
 /* ---------- Elements ---------- */
 
 function ElementsPanel() {
-  const bar = usePlanStore((s) => s.plan.overlays.progressBar);
+  const bar = usePlanStore((s) => s.plan.progressBar);
   return (
     <>
       <PanelHeader title="Elements" description="Extras that sit on top of your video." />

@@ -23,6 +23,7 @@ from app.media import (
     waveform_peaks,
 )
 from app.services.storage import SOURCE_ARTIFACTS, source_artifact_key
+from app.worker.chain import enqueue_followup
 from app.worker.context import JobContext, JobFailedError, Progress
 
 PEAKS_PER_SECOND = 50
@@ -62,6 +63,11 @@ async def run_proxy(ctx: JobContext, job: Job, progress: Progress) -> dict[str, 
     except BaseException:
         await _set_source(ctx, source_id, status="failed")
         raise
+    result["transcribe_job_id"] = None
+    if ctx.settings.transcribe_on_upload and "audio-16k.wav" in result["artifacts"]:
+        params = {"vibe": job.params["vibe"]} if job.params and job.params.get("vibe") else None
+        follow = await enqueue_followup(ctx, project_id, source_id, "transcribe", params)
+        result["transcribe_job_id"] = str(follow) if follow else None
     return result
 
 
@@ -110,7 +116,7 @@ async def _process(
         await progress(70)
 
         lufs: float | None = None
-        made = ["proxy-720p.mp4", "sprite.jpg", "sprite.json"]
+        made: list[str] = ["proxy-720p.mp4", "sprite.jpg", "sprite.json"]
         if info.has_audio:
             await extract_audio(original, files["audio-16k.wav"], tools=tools, time_limit=limit)
             await progress(80)

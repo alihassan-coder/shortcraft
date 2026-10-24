@@ -143,6 +143,10 @@ def make_settings(tmp_path: Path, **overrides: Any) -> Settings:
         "job_queue_backend": "inprocess",
         "redis_url": None,
         "proxy_on_upload": False,
+        "transcribe_on_upload": False,
+        "auto_plan": False,
+        "transcription_provider": "fake",
+        "deepgram_api_key": None,
         "work_dir": tmp_path / "work",
     }
     values.update(overrides)

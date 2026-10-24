@@ -76,7 +76,7 @@ const zoom = (id: string, from: number, to: number, scale: number, style: Zoom["
 const wid = (text: string, nth = 0) => words.filter((w) => w.text.replace(/[^\w']/g, "") === text)[nth]?.id ?? "";
 
 export const DEMO_PLAN: EditPlan = {
-  version: 2,
+  version: 3,
   id: "demo",
   title: "Morning tip — first three seconds",
   vibe: "energetic",
@@ -114,7 +114,8 @@ export const DEMO_PLAN: EditPlan = {
       zoom("z4", 46, 48, 1.18, "smooth"),
     ],
   },
-  overlays: { texts: [], images: [], progressBar: { enabled: false, position: "bottom", color: "#ffffff" } },
+  tracks: [],
+  progressBar: { enabled: false, position: "bottom", color: "#ffffff", thickness: 14 },
   music: { trackId: "summer-fun", volume: 0.5, ducking: true, duckTo: 0.25, fadeInMs: 600, fadeOutMs: 1200 },
   hook: {
     enabled: true,

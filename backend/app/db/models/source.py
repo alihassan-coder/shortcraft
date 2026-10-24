@@ -40,6 +40,10 @@ class Source(TimestampMixin, Base):
     sprite_key: Mapped[str | None] = mapped_column(String(512))
     sprite_index_key: Mapped[str | None] = mapped_column(String(512))
     peaks_key: Mapped[str | None] = mapped_column(String(512))
+    # Filled by the transcribe job: transcript JSON key, spoken language, number of words.
+    transcript_key: Mapped[str | None] = mapped_column(String(512))
+    transcript_language: Mapped[str | None] = mapped_column(String(20))
+    transcript_word_count: Mapped[int | None] = mapped_column(Integer)
 
     project: Mapped[Project] = relationship(back_populates="sources")
 
@@ -57,6 +61,7 @@ class Source(TimestampMixin, Base):
             self.sprite_key,
             self.sprite_index_key,
             self.peaks_key,
+            self.transcript_key,
         )
         return [key for key in keys if key]
 

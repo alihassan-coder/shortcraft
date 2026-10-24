@@ -1,7 +1,9 @@
 "use client";
 
 import { toast } from "sonner";
-import type { Clip, EditPlan } from "@/lib/edit-plan/schema";
+import { newId } from "@/lib/edit-plan/commands";
+import type { Clip, EditPlan, TextItem } from "@/lib/edit-plan/schema";
+import { presetById, presetTextStyle } from "@/lib/edit-plan/text-styles";
 import { formatTime, resolveTimeline } from "@/lib/edit-plan/timeline";
 import { revealPanel } from "./layout";
 import { runPrompt } from "./mock-director";
@@ -137,7 +139,7 @@ export function deleteSelection() {
       return;
     }
     case "text":
-      if (apply({ type: "removeText", textId: sel.id })) {
+      if (apply({ type: "removeItems", itemIds: [sel.id] })) {
         ui().select(null);
         toast("Text deleted", { action: undoAction });
       }
@@ -155,25 +157,28 @@ export function deleteSelection() {
 
 /* ---------- Text ---------- */
 
+/** All text items, in track order. */
+export const textItems = (p: EditPlan = plan()): TextItem[] =>
+  p.tracks.flatMap((t) => t.items.filter((i): i is TextItem => i.kind === "text"));
+
 export function addTextAtPlayhead(presetId = "clean", text = "Your text") {
-  const before = new Set(plan().overlays.texts.map((t) => t.id));
-  dispatch({ type: "addText", text: { startMs: ui().currentMs, presetId, text } });
-  const added = plan().overlays.texts.find((t) => !before.has(t.id));
-  if (added) {
-    ui().select({ kind: "text", id: added.id });
+  const id = newId("text");
+  const style = presetTextStyle(presetById(presetId));
+  if (apply({ type: "addItem", trackKind: "text", atMs: ui().currentMs, item: { id, text, presetId, style } })) {
+    ui().select({ kind: "text", id });
     revealPanel("inspector");
   }
 }
 
 export function duplicateText(textId: string) {
-  const t = plan().overlays.texts.find((x) => x.id === textId);
-  if (!t) return;
-  const { id: _id, ...rest } = t;
-  void _id;
-  const before = new Set(plan().overlays.texts.map((x) => x.id));
-  dispatch({ type: "addText", text: { ...rest, y: Math.min(1, rest.y + 0.06) } });
-  const added = plan().overlays.texts.find((x) => !before.has(x.id));
-  if (added) ui().select({ kind: "text", id: added.id });
+  const id = newId("text");
+  if (apply({ type: "duplicateItems", itemIds: [textId], newIds: [id] })) ui().select({ kind: "text", id });
+}
+
+export function deleteText(textId: string) {
+  if (!apply({ type: "removeItems", itemIds: [textId] })) return;
+  if (ui().selection?.id === textId) ui().select(null);
+  toast("Text deleted", { action: undoAction });
 }
 
 /* ---------- Project ---------- */

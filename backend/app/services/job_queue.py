@@ -8,6 +8,7 @@ Both execute `app.worker.runner.run_job`, which owns the job row's lifecycle.
 """
 
 import asyncio
+import dataclasses
 import logging
 import uuid
 from typing import TYPE_CHECKING, Protocol
@@ -30,6 +31,9 @@ class JobQueue(Protocol):
 
 class InProcessJobQueue:
     def __init__(self, ctx: JobContext | None = None, *, concurrency: int = 2) -> None:
+        # Jobs run here can chain follow-up jobs (proxy -> transcribe -> plan) on this queue.
+        if ctx is not None and ctx.enqueue is None:
+            ctx = dataclasses.replace(ctx, enqueue=self.enqueue)
         self.ctx = ctx
         self._limit = asyncio.Semaphore(concurrency)
         self._tasks: set[asyncio.Task[None]] = set()

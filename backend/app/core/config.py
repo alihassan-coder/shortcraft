@@ -103,6 +103,29 @@ class Settings(BaseSettings):
     langsmith_tracing: bool = False
     deepgram_api_key: SecretStr | None = None
 
+    # --- Transcription (A1) ---------------------------------------------------------------
+    # auto = Deepgram when DEEPGRAM_API_KEY is set, else the offline fake provider.
+    transcription_provider: Literal["auto", "deepgram", "fake"] = "auto"
+    # Deepgram pre-recorded model (docs: nova-3 is the current general Nova model).
+    deepgram_model: str = "nova-3"
+    deepgram_base_url: str = "https://api.deepgram.com"
+    deepgram_timeout_seconds: float = Field(default=300, gt=0)
+    # Default spoken language (BCP-47). Filler words are English-only at Deepgram.
+    transcription_language: str = "en"
+    # Enqueue a `transcribe` job when a proxy job succeeds (and the video has audio).
+    transcribe_on_upload: bool = True
+
+    # --- First edit without AI (A2) -------------------------------------------------------
+    # Enqueue a basic `plan` job when a transcribe job succeeds.
+    auto_plan: bool = True
+    # ffmpeg silencedetect: noise floor (dB) and minimum silence length (seconds).
+    silence_noise_db: float = Field(default=-35.0, le=0)
+    silence_min_s: float = Field(default=0.35, gt=0)
+    # Gaps between words longer than this count as silence too.
+    min_pause_ms: int = Field(default=400, ge=50)
+    # Speech kept next to each silence cut, so cuts never clip a word.
+    cut_padding_ms: int = Field(default=120, ge=0)
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:

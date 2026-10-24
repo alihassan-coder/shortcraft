@@ -431,3 +431,49 @@ async def loudness(
         return float(data["input_i"])
     except (KeyError, TypeError, ValueError) as exc:
         raise MediaError("Could not parse loudnorm output") from exc
+
+
+# --- silences ----------------------------------------------------------------------------
+
+_SILENCE_START = re.compile(rb"silence_start:\s*(-?[\d.]+)")
+_SILENCE_END = re.compile(rb"silence_end:\s*(-?[\d.]+)")
+
+
+def parse_silences(stderr: bytes, duration_ms: int | None = None) -> list[tuple[int, int]]:
+    """(start_ms, end_ms) ranges from `silencedetect` log lines. A silence still open at the
+    end of the stream is closed at `duration_ms` (dropped when that is unknown)."""
+    events: list[tuple[int, str, float]] = []
+    for pattern, kind in ((_SILENCE_START, "start"), (_SILENCE_END, "end")):
+        events += [(m.start(), kind, float(m.group(1))) for m in pattern.finditer(stderr)]
+    events.sort()
+    ranges: list[tuple[int, int]] = []
+    open_at: float | None = None
+    for _, kind, seconds in events:
+        if kind == "start":
+            open_at = max(0.0, seconds)
+        elif open_at is not None:
+            ranges.append((round(open_at * 1000), round(seconds * 1000)))
+            open_at = None
+    if open_at is not None and duration_ms is not None:
+        ranges.append((round(open_at * 1000), duration_ms))
+    return [(s, e) for s, e in ranges if e > s]
+
+
+async def detect_silences(
+    src: Path,
+    *,
+    noise_db: float = -35.0,
+    min_silence_s: float = 0.35,
+    duration_ms: int | None = None,
+    tools: MediaTools = DEFAULT_TOOLS,
+    time_limit: float | None = None,
+) -> list[tuple[int, int]]:
+    """Silent ranges in ms, via ffmpeg `silencedetect` (audio below `noise_db` for at least
+    `min_silence_s`)."""
+    exe = _resolve(tools.ffmpeg, "FFMPEG_PATH")
+    argv = [
+        exe, "-hide_banner", "-nostdin", "-nostats", "-i", str(src), "-map", "0:a:0", "-vn",
+        "-af", f"silencedetect=noise={noise_db:g}dB:d={min_silence_s:g}", "-f", "null", "-",
+    ]  # fmt: skip
+    _, stderr = await _run(argv, what="ffmpeg silencedetect", time_limit=time_limit)
+    return parse_silences(stderr, duration_ms)

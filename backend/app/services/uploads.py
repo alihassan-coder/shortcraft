@@ -176,6 +176,7 @@ ARTIFACT_FIELDS: dict[str, str] = {
     "sprite": "sprite.jpg",
     "sprite_index": "sprite.json",
     "peaks": "peaks.json",
+    "transcript": "transcript.json",
 }
 """Response field -> artifact file name."""
 
@@ -187,6 +188,7 @@ def artifact_key(source: Source, name: str) -> str | None:
         "sprite.jpg": source.sprite_key,
         "sprite.json": source.sprite_index_key,
         "peaks.json": source.peaks_key,
+        "transcript.json": source.transcript_key,
     }[name]
 
 

@@ -91,6 +91,9 @@ class SourceRead(BaseModel):
     fps: float | None = None
     video_codec: str | None = None
     audio_codec: str | None = None
+    # Filled by the transcribe job.
+    transcript_language: str | None = None
+    transcript_word_count: int | None = None
     created_at: datetime
 
 
@@ -114,6 +117,8 @@ class SourceUrls(BaseModel):
     - audio: 16 kHz mono WAV (transcription)
     - sprite / sprite_index: thumbnail sheet (JPEG) and its JSON index {frames: [{t, x, y}]}
     - peaks: waveform JSON {peaks_per_second, duration_ms, count, peaks: [0..1]}
+    - transcript: transcribe-job JSON {provider, model, language, duration_ms,
+      words: [{text, start_ms, end_ms, confidence, filler}]}
     """
 
     original: SourceUrl | None = None
@@ -122,6 +127,7 @@ class SourceUrls(BaseModel):
     sprite: SourceUrl | None = None
     sprite_index: SourceUrl | None = None
     peaks: SourceUrl | None = None
+    transcript: SourceUrl | None = None
 
 
 class SourceDetail(SourceRead):

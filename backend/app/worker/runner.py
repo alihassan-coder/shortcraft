@@ -18,7 +18,9 @@ from app.db.base import utcnow
 from app.db.models import Job
 from app.media import MediaError
 from app.worker.context import JobContext, JobFailedError, Progress
+from app.worker.plan import run_plan
 from app.worker.proxy import run_proxy
+from app.worker.transcribe import run_transcribe
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,11 @@ MAX_ERROR_LENGTH = 2000
 Handler = Callable[[JobContext, Job, Progress], Awaitable[dict[str, Any]]]
 
 # Job kinds that have a worker today. Other kinds are created as `queued` and wait.
-HANDLERS: dict[str, Handler] = {"proxy": run_proxy}
+HANDLERS: dict[str, Handler] = {
+    "proxy": run_proxy,
+    "transcribe": run_transcribe,
+    "plan": run_plan,
+}
 
 
 def has_handler(kind: str) -> bool:

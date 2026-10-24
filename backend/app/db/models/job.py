@@ -23,6 +23,8 @@ class Job(TimestampMixin, Base):
     source_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("sources.id", ondelete="SET NULL"), index=True
     )
+    # Extra input, e.g. {"vibe": "clean"} for a plan job, {"language": "en"} for transcribe.
+    params: Mapped[dict[str, Any] | None]
     # queued -> running -> succeeded | failed
     status: Mapped[str] = mapped_column(String(20), default="queued")
     progress: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # 0-100

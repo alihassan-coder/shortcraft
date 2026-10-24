@@ -3,7 +3,8 @@
 Key layout (see the helpers below):
     projects/{project_id}/sources/{source_id}/original.{ext}
     projects/{project_id}/sources/{source_id}/proxy-720p.mp4   (+ audio-16k.wav, sprite.jpg,
-                                                               sprite.json, peaks.json)
+                                                               sprite.json, peaks.json,
+                                                               transcript.json)
     projects/{project_id}/renders/{job_id}.mp4
 """
 
@@ -55,6 +56,8 @@ SOURCE_ARTIFACTS: dict[str, str] = {
     "sprite.jpg": "image/jpeg",
     "sprite.json": "application/json",
     "peaks.json": "application/json",
+    # Written by the transcribe job.
+    "transcript.json": "application/json",
 }
 
 

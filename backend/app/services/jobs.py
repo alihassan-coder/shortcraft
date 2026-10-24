@@ -1,12 +1,15 @@
 import logging
 import uuid
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import NotFoundError
+from app.core.errors import InvalidParamsError, NotFoundError
 from app.db.base import utcnow
 from app.db.models import Job, Source
+from app.planning import VIBES
 from app.schemas.job import JobKind
 from app.services.job_queue import JobQueue
 from app.services.projects import get_project
@@ -22,13 +25,23 @@ async def create_job(
     kind: JobKind,
     *,
     source_id: uuid.UUID | None = None,
+    params: dict[str, Any] | None = None,
 ) -> Job:
     await get_project(session, project_id)
+    if kind == "plan":
+        _check_plan_params(params)
     if source_id is not None:
         source = await session.get(Source, source_id)
         if source is None or source.project_id != project_id:
             raise NotFoundError("Source not found")
-    job = Job(project_id=project_id, kind=kind, status="queued", source_id=source_id, progress=0)
+    job = Job(
+        project_id=project_id,
+        kind=kind,
+        status="queued",
+        source_id=source_id,
+        progress=0,
+        params=params,
+    )
     session.add(job)
     await session.commit()
     if not has_handler(kind):
@@ -43,6 +56,15 @@ async def create_job(
         job.finished_at = utcnow()
         await session.commit()
     return job
+
+
+def _check_plan_params(params: dict[str, Any] | None) -> None:
+    params = params or {}
+    if str(params.get("mode") or "basic") != "basic":
+        raise InvalidParamsError("Only plan mode 'basic' is available")
+    vibe = params.get("vibe")
+    if vibe is not None and vibe not in VIBES:
+        raise InvalidParamsError(f"vibe must be one of {', '.join(VIBES)}")
 
 
 async def get_job(session: AsyncSession, project_id: uuid.UUID, job_id: uuid.UUID) -> Job:
