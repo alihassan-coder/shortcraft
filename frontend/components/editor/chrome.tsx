@@ -1,164 +1,286 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useStore } from "zustand";
-import {
-  Captions,
-  ChevronLeft,
-  Download,
-  Keyboard,
-  Music2,
-  Palette,
-  Redo2,
-  ScissorsLineDashed,
-  Type,
-  Undo2,
-  ZoomIn,
-  type LucideIcon,
-} from "lucide-react";
+import { toast } from "sonner";
+import { CloudOff, Download, Redo2, Search, TriangleAlert, Undo2 } from "lucide-react";
 import { LogoMark } from "@/components/brand/logo";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import {
+  Menubar,
+  MenubarCheckboxItem,
+  MenubarContent,
+  MenubarItem,
+  MenubarMenu,
+  MenubarRadioGroup,
+  MenubarRadioItem,
+  MenubarSeparator,
+  MenubarShortcut,
+  MenubarSub,
+  MenubarSubContent,
+  MenubarSubTrigger,
+  MenubarTrigger,
+} from "@/components/ui/menubar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatTime } from "@/lib/edit-plan/timeline";
-import { revealPanel } from "@/lib/editor/layout";
-import { dispatch, redo, undo, usePlanStore, useTimeline, useUiStore, type Tool } from "@/lib/editor/store";
+import {
+  comingSoon,
+  deleteSelection,
+  duplicateClip,
+  focusTitle,
+  keyLabel,
+  splitAtPlayhead,
+  toggleOriginal,
+} from "@/lib/editor/actions";
+import { togglePanel, useBreakpoint, usePanelVisible } from "@/lib/editor/layout";
+import { relativeTime, useSaveStore } from "@/lib/editor/save";
+import { dispatch, redo, undo, usePlanStore, useUiStore, type PreviewZoom } from "@/lib/editor/store";
 import { cn } from "@/lib/utils";
+import { IconButton } from "./controls";
 
-const TOOLS: { id: Tool; label: string; icon: LucideIcon; key: string }[] = [
-  { id: "style", label: "Style", icon: Palette, key: "1" },
-  { id: "captions", label: "Captions", icon: Captions, key: "2" },
-  { id: "cuts", label: "Cuts", icon: ScissorsLineDashed, key: "3" },
-  { id: "zoom", label: "Zoom", icon: ZoomIn, key: "4" },
-  { id: "music", label: "Audio", icon: Music2, key: "5" },
-  { id: "hook", label: "Hook", icon: Type, key: "6" },
-];
+/* ---------- Menu bar ---------- */
 
-export const TOOL_KEYS = Object.fromEntries(TOOLS.map((t) => [t.key, t.id])) as Record<string, Tool>;
+const TRIGGER = "h-7 rounded-[8px] px-2 text-[13px] font-normal text-ink-2 hover:bg-surface hover:text-ink aria-expanded:bg-surface aria-expanded:text-ink";
+const CONTENT = "min-w-56 rounded-[12px] p-1";
 
-export function ToolRail({ orientation = "vertical" }: { orientation?: "vertical" | "horizontal" }) {
-  const { tool, setTool } = useUiStore();
-  const horizontal = orientation === "horizontal";
+function Shortcut({ keys }: { keys: string }) {
+  return <MenubarShortcut className="font-mono text-[11px] tracking-normal">{keyLabel(keys)}</MenubarShortcut>;
+}
+
+function EditorMenus() {
+  const router = useRouter();
+  const breakpoint = useBreakpoint();
+  const canUndo = useStore(usePlanStore.temporal, (s) => s.pastStates.length > 0);
+  const canRedo = useStore(usePlanStore.temporal, (s) => s.futureStates.length > 0);
+  const selection = useUiStore((s) => s.selection);
+  const { safeZones, setSafeZones, original, previewZoom, setPreviewZoom, setDialog } = useUiStore();
+  const assets = usePanelVisible("assets", breakpoint);
+  const inspector = usePanelVisible("inspector", breakpoint);
+  const timeline = usePanelVisible("timeline", breakpoint);
+  const renaming = useRef(false);
+
   return (
-    <nav
-      className={cn(
-        "flex gap-1",
-        horizontal ? "overflow-x-auto px-3 py-2 [scrollbar-width:none]" : "flex-col items-center py-3",
-      )}
-      aria-label="Tools"
-    >
-      {TOOLS.map(({ id, label, icon: Icon, key }) => (
-        <Tooltip key={id}>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => {
-                setTool(id);
-                // Picking a tool (or the active one again) always brings its panel back.
-                revealPanel("tools");
-              }}
-              aria-pressed={tool === id}
-              className={cn(
-                "flex shrink-0 items-center rounded-xl text-[11px] transition-colors",
-                horizontal ? "h-9 gap-1.5 px-3 text-[13px]" : "w-16 flex-col gap-1 py-2.5",
-                tool === id ? "bg-white text-ink shadow-sm" : "text-ink-2 hover:bg-white/60 hover:text-ink",
-              )}
-            >
-              <Icon className={horizontal ? "size-4" : "size-[18px]"} strokeWidth={1.75} />
-              {label}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side={horizontal ? "bottom" : "right"}>
-            {label} <kbd className="ml-1 font-mono opacity-60">{key}</kbd>
-          </TooltipContent>
-        </Tooltip>
-      ))}
-    </nav>
+    <Menubar className="h-8 gap-0 border-0 p-0 shadow-none">
+      <MenubarMenu>
+        <MenubarTrigger className={TRIGGER}>File</MenubarTrigger>
+        <MenubarContent
+          className={CONTENT}
+          onCloseAutoFocus={(e) => {
+            if (!renaming.current) return;
+            e.preventDefault();
+            renaming.current = false;
+            focusTitle();
+          }}
+        >
+          <MenubarItem onSelect={() => (renaming.current = true)}>Rename…</MenubarItem>
+          <MenubarItem onSelect={() => comingSoon("Duplicating projects")}>Duplicate project</MenubarItem>
+          <MenubarSeparator />
+          <MenubarItem onSelect={() => setDialog("export")}>
+            Export…
+            <Shortcut keys="mod+E" />
+          </MenubarItem>
+          <MenubarSeparator />
+          <MenubarItem onSelect={() => router.push("/")}>Back to projects</MenubarItem>
+        </MenubarContent>
+      </MenubarMenu>
+
+      <MenubarMenu>
+        <MenubarTrigger className={TRIGGER}>Edit</MenubarTrigger>
+        <MenubarContent className={CONTENT}>
+          <MenubarItem disabled={!canUndo} onSelect={undo}>
+            Undo
+            <Shortcut keys="mod+Z" />
+          </MenubarItem>
+          <MenubarItem disabled={!canRedo} onSelect={redo}>
+            Redo
+            <Shortcut keys="mod+shift+Z" />
+          </MenubarItem>
+          <MenubarSeparator />
+          <MenubarItem onSelect={splitAtPlayhead} data-action="split">
+            Split at playhead
+            <Shortcut keys="S" />
+          </MenubarItem>
+          <MenubarItem onSelect={() => duplicateClip()}>
+            Duplicate clip
+            <Shortcut keys="mod+D" />
+          </MenubarItem>
+          <MenubarItem disabled={!selection} onSelect={deleteSelection}>
+            {selection?.kind === "word" ? "Cut or restore word" : "Delete selection"}
+            <Shortcut keys="delete" />
+          </MenubarItem>
+          <MenubarSeparator />
+          <MenubarItem onSelect={() => setDialog("palette")}>
+            Find an action…
+            <Shortcut keys="mod+K" />
+          </MenubarItem>
+        </MenubarContent>
+      </MenubarMenu>
+
+      <MenubarMenu>
+        <MenubarTrigger className={TRIGGER}>View</MenubarTrigger>
+        <MenubarContent className={CONTENT}>
+          <MenubarCheckboxItem checked={assets} onSelect={() => togglePanel("assets")}>
+            Assets
+            <Shortcut keys="[" />
+          </MenubarCheckboxItem>
+          <MenubarCheckboxItem checked={inspector} onSelect={() => togglePanel("inspector")}>
+            Inspector
+            <Shortcut keys="]" />
+          </MenubarCheckboxItem>
+          <MenubarCheckboxItem checked={timeline} onSelect={() => togglePanel("timeline")}>
+            Timeline
+            <Shortcut keys="\" />
+          </MenubarCheckboxItem>
+          <MenubarSeparator />
+          <MenubarCheckboxItem checked={safeZones} onSelect={() => setSafeZones(!safeZones)}>
+            Safe zones
+          </MenubarCheckboxItem>
+          <MenubarCheckboxItem checked={original} onSelect={toggleOriginal}>
+            Show original
+            <Shortcut keys="O" />
+          </MenubarCheckboxItem>
+          <MenubarSeparator />
+          <MenubarSub>
+            <MenubarSubTrigger>Preview zoom</MenubarSubTrigger>
+            <MenubarSubContent className={CONTENT}>
+              <MenubarRadioGroup value={String(previewZoom)} onValueChange={(v) => setPreviewZoom((v === "fit" ? "fit" : Number(v)) as PreviewZoom)}>
+                <MenubarRadioItem value="fit">
+                  Fit
+                  <Shortcut keys="shift+0" />
+                </MenubarRadioItem>
+                <MenubarRadioItem value="0.5">50%</MenubarRadioItem>
+                <MenubarRadioItem value="1">
+                  100%
+                  <Shortcut keys="shift+1" />
+                </MenubarRadioItem>
+              </MenubarRadioGroup>
+            </MenubarSubContent>
+          </MenubarSub>
+        </MenubarContent>
+      </MenubarMenu>
+
+      <MenubarMenu>
+        <MenubarTrigger className={TRIGGER}>Help</MenubarTrigger>
+        <MenubarContent className={CONTENT}>
+          <MenubarItem onSelect={() => setDialog("shortcuts")}>
+            Keyboard shortcuts
+            <Shortcut keys="?" />
+          </MenubarItem>
+          <MenubarItem onSelect={() => comingSoon("Sending feedback from the editor")}>Send feedback</MenubarItem>
+        </MenubarContent>
+      </MenubarMenu>
+    </Menubar>
   );
 }
 
+/* ---------- Save status ---------- */
+
+function useNow(intervalMs: number) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(t);
+  }, [intervalMs]);
+  return now;
+}
+
+function SaveStatus() {
+  const { status, savedAt } = useSaveStore();
+  const now = useNow(20_000);
+  const content = {
+    saving: { icon: <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground" />, text: "Saving…" },
+    saved: {
+      icon: <span className="size-1.5 rounded-full bg-emerald-500" />,
+      text: savedAt ? `Saved ${relativeTime(savedAt, Math.max(now, savedAt))}` : "Saved",
+    },
+    offline: { icon: <CloudOff className="size-3.5" />, text: "Offline – saved in browser" },
+    error: { icon: <TriangleAlert className="size-3.5 text-cut" />, text: "Not saved – browser storage is full or blocked" },
+  }[status];
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          role="status"
+          data-save-status={status}
+          className={cn("hidden h-7 items-center gap-1.5 rounded-[8px] px-1.5 text-xs whitespace-nowrap text-muted-foreground md:flex", status === "error" && "text-cut")}
+        >
+          {content.icon}
+          {content.text}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        {savedAt ? `Last saved ${new Date(savedAt).toLocaleTimeString()} in this browser` : "Changes save automatically in this browser"}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/* ---------- Top bar ---------- */
+
 export function TopBar() {
-  const plan = usePlanStore((s) => s.plan);
+  const title = usePlanStore((s) => s.plan.title);
   const canUndo = useStore(usePlanStore.temporal, (s) => s.pastStates.length > 0);
   const canRedo = useStore(usePlanStore.temporal, (s) => s.futureStates.length > 0);
-  const [exportOpen, setExportOpen] = useState(false);
-  const [keysOpen, setKeysOpen] = useState(false);
-  const outMs = useTimeline({ original: false }).durationMs;
-  const { width, height } = plan.canvas;
+  const setDialog = useUiStore((s) => s.setDialog);
 
   return (
-    <header className="flex h-14 items-center gap-3 border-b bg-white px-3">
-      <Link href="/" className="grid size-9 place-items-center rounded-lg hover:bg-surface" aria-label="Back to home">
-        <LogoMark className="h-5 w-3.5" />
-      </Link>
-      <Link href="/" className="hidden items-center text-sm text-muted-foreground hover:text-ink sm:flex">
-        <ChevronLeft className="size-4" /> Projects
-      </Link>
-      <span className="text-line">/</span>
+    <header className="flex h-11 shrink-0 items-center gap-1 border-b bg-white pr-2 pl-1.5">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link href="/" className="grid size-8 place-items-center rounded-[10px] hover:bg-surface" aria-label="Back to projects">
+            <LogoMark className="h-[18px] w-[12px]" />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Back to projects</TooltipContent>
+      </Tooltip>
+      <EditorMenus />
+      <span className="mx-1.5 h-4 w-px bg-line" aria-hidden />
       <input
-        value={plan.title}
+        id="project-title"
+        value={title}
         onChange={(e) => dispatch({ type: "setTitle", title: e.target.value })}
-        onKeyDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter" || e.key === "Escape") (e.target as HTMLInputElement).blur();
+        }}
         aria-label="Project name"
-        className="h-8 w-[min(340px,30vw)] truncate rounded-lg px-2 text-sm font-medium outline-none hover:bg-surface focus:bg-surface"
+        className="h-7 w-[min(280px,22vw)] min-w-[120px] truncate rounded-[8px] px-1.5 text-[13px] font-medium outline-none hover:bg-surface focus:bg-surface focus:ring-1 focus:ring-line"
       />
-      <span className="hidden items-center gap-1.5 text-xs text-muted-foreground md:flex">
-        <span className="size-1.5 rounded-full bg-emerald-500" /> Saved
-      </span>
+      <SaveStatus />
 
       <div className="ml-auto flex items-center gap-1">
-        <IconButton label="Undo (Ctrl+Z)" disabled={!canUndo} onClick={undo}>
+        <IconButton label="Undo" shortcut="mod+Z" disabled={!canUndo} onClick={undo} side="bottom">
           <Undo2 className="size-4" />
         </IconButton>
-        <IconButton label="Redo (Ctrl+Shift+Z)" disabled={!canRedo} onClick={redo}>
+        <IconButton label="Redo" shortcut="mod+shift+Z" disabled={!canRedo} onClick={redo} side="bottom">
           <Redo2 className="size-4" />
         </IconButton>
-        <IconButton label="Keyboard shortcuts" onClick={() => setKeysOpen(true)}>
-          <Keyboard className="size-4" />
-        </IconButton>
-        <span className="mx-2 hidden font-mono text-xs text-muted-foreground lg:inline">
-          {formatTime(outMs, true)} · {width}×{height}
-        </span>
+        <span className="mx-1 h-4 w-px bg-line" aria-hidden />
         <button
-          onClick={() => setExportOpen(true)}
-          className="flex h-9 items-center gap-2 rounded-full bg-ink px-4 text-sm font-medium text-white hover:bg-ink-2"
+          onClick={() => setDialog("palette")}
+          aria-label="Search actions"
+          className="hidden h-8 w-[208px] items-center gap-2 rounded-[10px] border bg-white px-2.5 text-[13px] text-muted-foreground hover:border-ink/25 hover:text-ink-2 lg:flex"
         >
-          <Download className="size-4" /> Export
+          <Search className="size-3.5" />
+          Search or ask…
+          <kbd className="ml-auto rounded-[5px] bg-surface px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{keyLabel("mod+K")}</kbd>
+        </button>
+        <IconButton label="Search actions" shortcut="mod+K" onClick={() => setDialog("palette")} side="bottom" className="lg:hidden">
+          <Search className="size-4" />
+        </IconButton>
+        <button
+          onClick={() => setDialog("export")}
+          className="ml-1 flex h-8 items-center gap-1.5 rounded-full bg-ink px-3.5 text-[13px] font-medium text-white hover:bg-ink-2"
+        >
+          <Download className="size-3.5" /> Export
         </button>
       </div>
-
-      <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
-      <ShortcutsDialog open={keysOpen} onOpenChange={setKeysOpen} />
     </header>
   );
 }
 
-function IconButton({
-  label,
-  disabled,
-  onClick,
-  children,
-}: {
-  label: string;
-  disabled?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          onClick={onClick}
-          disabled={disabled}
-          aria-label={label}
-          className="grid size-9 place-items-center rounded-lg text-ink-2 hover:bg-surface hover:text-ink disabled:opacity-35 disabled:hover:bg-transparent"
-        >
-          {children}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
+/* ---------- Dialogs ---------- */
 
 const PRESETS = [
   { id: "tiktok", label: "TikTok", note: "1080×1920 · 30fps" },
@@ -166,32 +288,51 @@ const PRESETS = [
   { id: "shorts", label: "YouTube Shorts", note: "1080×1920 · 30fps" },
 ];
 
+export function EditorDialogs() {
+  const dialog = useUiStore((s) => s.dialog);
+  const setDialog = useUiStore((s) => s.setDialog);
+  const close = (open: boolean) => !open && setDialog(null);
+  return (
+    <>
+      <ExportDialog open={dialog === "export"} onOpenChange={close} />
+      <ShortcutsDialog open={dialog === "shortcuts"} onOpenChange={close} />
+    </>
+  );
+}
+
 function ExportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const [preset, setPreset] = useState("tiktok");
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-[24px] p-7 sm:max-w-[440px]">
-        <DialogTitle className="text-xl font-semibold">Export video</DialogTitle>
+      <DialogContent className="rounded-[20px] p-6 sm:max-w-[420px]">
+        <DialogTitle className="text-lg font-semibold">Export video</DialogTitle>
         <DialogDescription>Choose where you&apos;ll post it. We size and frame it for you.</DialogDescription>
-        <div className="mt-2 space-y-2">
+        <div className="mt-1 space-y-1.5">
           {PRESETS.map((p) => (
             <button
               key={p.id}
               onClick={() => setPreset(p.id)}
+              aria-pressed={preset === p.id}
               className={cn(
-                "flex w-full items-center justify-between rounded-2xl border px-4 py-3.5 text-left",
+                "flex h-12 w-full items-center justify-between rounded-[12px] border px-3.5 text-left",
                 preset === p.id ? "border-ink" : "hover:bg-surface",
               )}
             >
-              <span className="text-[15px] font-medium">{p.label}</span>
+              <span className="text-sm font-medium">{p.label}</span>
               <span className="font-mono text-xs text-muted-foreground">{p.note}</span>
             </button>
           ))}
         </div>
-        <div className="mt-2 rounded-2xl bg-surface p-4 text-sm text-ink-2">
-          Rendering runs on our servers and arrives with the backend (Part 5). Your edit is saved and ready.
-        </div>
-        <button disabled className="mt-1 h-11 w-full rounded-full bg-ink text-[15px] font-medium text-white opacity-40">
+        <p className="rounded-[12px] bg-surface p-3.5 text-[13px] text-ink-2">
+          Rendering runs on our servers and arrives with the backend. Your edit is saved and ready.
+        </p>
+        <button
+          onClick={() => {
+            onOpenChange(false);
+            toast("Export isn't available yet", { description: "Rendering arrives with the backend. Your edit is saved." });
+          }}
+          className="h-10 w-full rounded-full bg-ink text-sm font-medium text-white hover:bg-ink-2"
+        >
           Export MP4
         </button>
       </DialogContent>
@@ -199,33 +340,40 @@ function ExportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
   );
 }
 
-const SHORTCUTS = [
+const SHORTCUTS: [string, string][] = [
   ["Space", "Play / pause"],
   ["J / L", "Back / forward 1 second"],
   ["K", "Pause"],
   ["← / →", "Previous / next word"],
-  ["Delete", "Cut or restore selected word"],
+  ["S", "Split at playhead"],
+  ["delete", "Delete selection (cut a selected word)"],
+  ["mod+D", "Duplicate clip"],
   ["H", "Highlight selected word"],
-  ["1 – 6", "Switch tool"],
-  ["[", "Show / hide tool panel"],
-  ["]", "Show / hide transcript"],
+  ["O", "Show original / edited"],
+  ["1 – 0", "Switch assets tab"],
+  ["[", "Show / hide assets"],
+  ["]", "Show / hide inspector"],
   ["\\", "Show / hide timeline"],
-  ["Ctrl + Z", "Undo"],
-  ["Ctrl + Shift + Z", "Redo"],
+  ["mod+K", "Command palette"],
+  ["mod+Z", "Undo"],
+  ["mod+shift+Z", "Redo"],
+  ["Escape", "Clear selection"],
 ];
 
 function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-[24px] p-7 sm:max-w-[420px]">
-        <DialogTitle className="text-xl font-semibold">Keyboard shortcuts</DialogTitle>
+      <DialogContent className="rounded-[20px] p-6 sm:max-w-[440px]">
+        <DialogTitle className="text-lg font-semibold">Keyboard shortcuts</DialogTitle>
         <DialogDescription className="sr-only">All editor shortcuts</DialogDescription>
-        <dl className="mt-2 divide-y text-sm">
+        <dl className="-mx-1 max-h-[60vh] divide-y overflow-y-auto px-1 text-[13px]">
           {SHORTCUTS.map(([k, d]) => (
-            <div key={k} className="flex justify-between py-2.5">
+            <div key={k} className="flex items-center justify-between py-2">
               <dt className="text-ink-2">{d}</dt>
               <dd>
-                <kbd className="rounded-md border bg-surface px-2 py-0.5 font-mono text-xs">{k}</kbd>
+                <kbd className="rounded-[6px] border bg-surface px-1.5 py-0.5 font-mono text-[11px]">
+                  {k.includes("+") || k === "delete" ? keyLabel(k) : k}
+                </kbd>
               </dd>
             </div>
           ))}
